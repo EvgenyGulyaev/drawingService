@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -165,7 +166,9 @@ func (h *Handler) downloadImage(ctx *silverlining.Context, id string) {
 		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
 		return
 	}
-	reader, mimeType, err := h.service.Download(context.Background(), id)
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	reader, mimeType, err := h.service.Download(hctx, id)
 	if err != nil {
 		writeServiceError(ctx, err)
 		return
@@ -193,7 +196,9 @@ func (h *Handler) createImage(ctx *silverlining.Context) {
 		drainAndWriteError(ctx, err)
 		return
 	}
-	image, err := h.service.Create(context.Background(), service.CreateInput{
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	image, err := h.service.Create(hctx, service.CreateInput{
 		Input:    input,
 		Filename: filename,
 		MimeType: mimeType,
@@ -222,7 +227,9 @@ func (h *Handler) updateImage(ctx *silverlining.Context, id string) {
 		writeMultipartError(ctx, err)
 		return
 	}
-	image, err := h.service.Update(context.Background(), id, service.UpdateInput{
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	image, err := h.service.Update(hctx, id, service.UpdateInput{
 		Input:    input,
 		Filename: filename,
 		MimeType: mimeType,
@@ -246,7 +253,9 @@ func (h *Handler) deleteImage(ctx *silverlining.Context, id string) {
 		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
 		return
 	}
-	if err := h.service.Delete(context.Background(), id); err != nil {
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	if err := h.service.Delete(hctx, id); err != nil {
 		writeServiceError(ctx, err)
 		return
 	}
@@ -274,9 +283,12 @@ func readMultipartDrawing(ctx *silverlining.Context, maxFileBytes int64) (model.
 		name := part.FormName()
 		switch name {
 		case "metadata":
-			data, err := io.ReadAll(part)
+			data, err := io.ReadAll(io.LimitReader(part, maxMetadataSize))
 			if err != nil {
 				return model.DrawingImageInput{}, nil, "", "", err
+			}
+			if len(data) > maxMetadataSize {
+				return model.DrawingImageInput{}, nil, "", "", errors.New("metadata too large")
 			}
 			if err := json.Unmarshal(data, &meta); err != nil {
 				return model.DrawingImageInput{}, nil, "", "", fmt.Errorf("metadata: %w", err)
@@ -292,6 +304,7 @@ func readMultipartDrawing(ctx *silverlining.Context, maxFileBytes int64) (model.
 				return model.DrawingImageInput{}, nil, "", "", err
 			}
 			if int64(len(fileBytes)) > maxFileBytes {
+				drainRemainingParts(reader)
 				return model.DrawingImageInput{}, nil, "", "", service.ErrPayloadTooLarge
 			}
 		default:
@@ -302,6 +315,19 @@ func readMultipartDrawing(ctx *silverlining.Context, maxFileBytes int64) (model.
 		return model.DrawingImageInput{}, nil, "", "", errors.New("file is required")
 	}
 	return meta, bytes.NewReader(fileBytes), filename, mimeType, nil
+}
+
+const maxMetadataSize = 128 * 1024
+
+func drainRemainingParts(r *multipart.Reader) {
+	for {
+		p, err := r.NextPart()
+		if err != nil {
+			return
+		}
+		_, _ = io.Copy(io.Discard, p)
+		p.Close()
+	}
 }
 
 func writeServiceError(ctx *silverlining.Context, err error) {

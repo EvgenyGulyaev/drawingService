@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"errors"
 	"mime/multipart"
 	"time"
 	"net"
@@ -26,6 +27,7 @@ const testServiceToken = "test-token"
 
 type testEnv struct {
 	baseURL string
+	storage *google.FakeStorage
 }
 
 func newTestEnv(t *testing.T, allowed string, maxBytes int64) *testEnv {
@@ -54,7 +56,7 @@ func newTestEnv(t *testing.T, allowed string, maxBytes int64) *testEnv {
 		_ = srv.Serve(ln)
 	}()
 	// server stops on test process exit
-	return &testEnv{baseURL: baseURL}
+	return &testEnv{baseURL: baseURL, storage: storage}
 }
 
 func (e *testEnv) doRequest(t *testing.T, method, path, token, email, login string, body io.Reader, contentType string) (*nethttp.Response, []byte) {
@@ -344,11 +346,9 @@ func TestHealthzReportsOK(t *testing.T) {
 
 func TestHealthzReportsUnavailableWhenDriveFails(t *testing.T) {
 	env := newTestEnv(t, "*", 0)
-	// We can't reach the fake from here, but FakeStorage has SetPingError; however
-	// the storage is held by the handler, which we don't expose. We exercise the
-	// behaviour by closing the underlying storage and re-running.
+	env.storage.SetPingError(errors.New("drive offline"))
 	resp, data := env.doRequest(t, nethttp.MethodGet, "/healthz", "", "", "", nil, "")
-	if resp.StatusCode != nethttp.StatusOK && resp.StatusCode != nethttp.StatusServiceUnavailable {
-		t.Fatalf("expected 200 or 503, got %d: %s", resp.StatusCode, string(data))
+	if resp.StatusCode != nethttp.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", resp.StatusCode, string(data))
 	}
 }

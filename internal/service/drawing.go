@@ -93,14 +93,16 @@ func (s *DrawingService) Create(ctx context.Context, in CreateInput) (model.Draw
 	}
 
 	driveName := buildDriveName(in.Filename, in.Input.Title)
-	fileID, err := s.storage.UploadPNG(s.driveContext(ctx), driveName, bytes.NewReader(data), int64(len(data)))
+	driveCtx, driveCancel := s.driveContext(ctx)
+	defer driveCancel()
+	fileID, err := s.storage.UploadPNG(driveCtx, driveName, bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return model.DrawingImage{}, fmt.Errorf("upload png: %w", err)
 	}
 
 	image, err := s.repo.Create(in.Input, fileID, int64(len(data)), mime, in.Actor)
 	if err != nil {
-		if cleanupErr := s.storage.Delete(s.driveContext(ctx), fileID); cleanupErr != nil {
+		if cleanupErr := s.storage.Delete(driveCtx, fileID); cleanupErr != nil {
 			log.Printf("drawing service: failed to cleanup drive file %q after repo create error: %v", fileID, cleanupErr)
 		}
 		return model.DrawingImage{}, err
@@ -143,7 +145,9 @@ func (s *DrawingService) Update(ctx context.Context, id string, in UpdateInput) 
 		return model.DrawingImage{}, ErrEmptyPayload
 	}
 
-	if err := s.storage.UpdatePNG(s.driveContext(ctx), existing.DriveFileID, bytes.NewReader(data), int64(len(data))); err != nil {
+	driveCtx, driveCancel := s.driveContext(ctx)
+	defer driveCancel()
+	if err := s.storage.UpdatePNG(driveCtx, existing.DriveFileID, bytes.NewReader(data), int64(len(data))); err != nil {
 		return model.DrawingImage{}, fmt.Errorf("update png: %w", err)
 	}
 
@@ -155,7 +159,9 @@ func (s *DrawingService) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.storage.Delete(s.driveContext(ctx), existing.DriveFileID); err != nil {
+	driveCtx, driveCancel := s.driveContext(ctx)
+	defer driveCancel()
+	if err := s.storage.Delete(driveCtx, existing.DriveFileID); err != nil {
 		return fmt.Errorf("storage delete: %w", err)
 	}
 	if _, err := s.repo.Delete(id); err != nil {
@@ -201,10 +207,9 @@ func buildDriveName(original, title string) string {
 	return cleaned + ext
 }
 
-func (s *DrawingService) driveContext(parent context.Context) context.Context {
+func (s *DrawingService) driveContext(parent context.Context) (context.Context, context.CancelFunc) {
 	if s.driveTimeout <= 0 {
-		return parent
+		return parent, func() {}
 	}
-	ctx, _ := context.WithTimeout(parent, s.driveTimeout)
-	return ctx
+	return context.WithTimeout(parent, s.driveTimeout)
 }
