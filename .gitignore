@@ -12,7 +12,7 @@ dist/
 build/
 tmp/
 
-drawing-service
+/drawing-service
 
 .DS_Store
 .idea/

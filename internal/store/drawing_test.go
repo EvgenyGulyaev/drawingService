@@ -9,7 +9,15 @@ import (
 func newTestRepo(t *testing.T) *DrawingRepository {
 	t.Helper()
 	dir := t.TempDir()
-	db := OpenDb(filepath.Join(dir, "drawings.db"))
+	db, err := OpenDb(filepath.Join(dir, "drawings.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close db: %v", err)
+		}
+	})
 	repo := NewDrawingRepository(db)
 	if err := repo.EnsureBuckets(); err != nil {
 		t.Fatalf("ensure buckets: %v", err)

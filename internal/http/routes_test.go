@@ -33,7 +33,15 @@ type testEnv struct {
 func newTestEnv(t *testing.T, allowed string, maxBytes int64) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	db := store.OpenDb(filepath.Join(dir, "drawings.db"))
+	db, err := store.OpenDb(filepath.Join(dir, "drawings.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close db: %v", err)
+		}
+	})
 	repo := store.NewDrawingRepository(db)
 	if err := repo.EnsureBuckets(); err != nil {
 		t.Fatalf("ensure buckets: %v", err)

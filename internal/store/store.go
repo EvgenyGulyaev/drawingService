@@ -1,8 +1,6 @@
 package store
 
 import (
-	"log"
-
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -11,15 +9,22 @@ type Db struct {
 	DB       *bolt.DB
 }
 
-func OpenDb(filename string) *Db {
+func OpenDb(filename string) (*Db, error) {
 	if filename == "" {
 		filename = "drawing.db"
 	}
 	db, err := bolt.Open(filename, 0o600, nil)
 	if err != nil {
-		log.Fatalf("failed to open bolt db: %v", err)
+		return nil, err
 	}
-	return &Db{filename: filename, DB: db}
+	return &Db{filename: filename, DB: db}, nil
+}
+
+func (d *Db) Close() error {
+	if d == nil || d.DB == nil {
+		return nil
+	}
+	return d.DB.Close()
 }
 
 func (d *Db) EnsureBucket(name []byte) error {

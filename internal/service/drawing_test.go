@@ -16,7 +16,15 @@ import (
 func newTestService(t *testing.T, maxBytes int64) (*DrawingService, *google.FakeStorage) {
 	t.Helper()
 	dir := t.TempDir()
-	db := store.OpenDb(filepath.Join(dir, "drawings.db"))
+	db, err := store.OpenDb(filepath.Join(dir, "drawings.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close db: %v", err)
+		}
+	})
 	repo := store.NewDrawingRepository(db)
 	if err := repo.EnsureBuckets(); err != nil {
 		t.Fatalf("ensure buckets: %v", err)
@@ -83,7 +91,15 @@ func TestDrawingServiceCreateUploadsAndPersists(t *testing.T) {
 
 func TestDrawingServiceCreateRollsBackOnMetadataFailure(t *testing.T) {
 	dir := t.TempDir()
-	db := store.OpenDb(filepath.Join(dir, "drawings.db"))
+	db, err := store.OpenDb(filepath.Join(dir, "drawings.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("close db: %v", err)
+		}
+	})
 	repo := store.NewDrawingRepository(db)
 	if err := repo.EnsureBuckets(); err != nil {
 		t.Fatalf("ensure buckets: %v", err)
@@ -92,7 +108,7 @@ func TestDrawingServiceCreateRollsBackOnMetadataFailure(t *testing.T) {
 	svc := NewDrawingService(repo, storage, 0)
 
 	// Use a title containing forbidden chars to make the filename non-empty but ensure name
-	_, err := svc.Create(context.Background(), CreateInput{
+	_, err = svc.Create(context.Background(), CreateInput{
 		Input:    model.DrawingImageInput{Title: "ok", Width: 100, Height: 100},
 		Filename: "x.png",
 		MimeType: "image/png",
