@@ -38,6 +38,10 @@ func (s *DrawingService) List() ([]model.DrawingImage, error) {
 	return s.repo.List()
 }
 
+func (s *DrawingService) MaxFileBytes() int64 {
+	return s.maxImageBytes
+}
+
 func (s *DrawingService) Get(id string) (model.DrawingImage, error) {
 	if id == "" {
 		return model.DrawingImage{}, store.ErrNotFound

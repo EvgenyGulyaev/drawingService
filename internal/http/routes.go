@@ -168,7 +168,7 @@ func (h *Handler) createImage(ctx *silverlining.Context) {
 		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
 		return
 	}
-	input, file, filename, mimeType, err := readMultipartDrawing(ctx, "create")
+	input, file, filename, mimeType, err := readMultipartDrawing(ctx, h.service.MaxFileBytes())
 	if err != nil {
 		writeMultipartError(ctx, err)
 		return
@@ -197,7 +197,7 @@ func (h *Handler) updateImage(ctx *silverlining.Context, id string) {
 		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
 		return
 	}
-	input, file, filename, mimeType, err := readMultipartDrawing(ctx, "update")
+	input, file, filename, mimeType, err := readMultipartDrawing(ctx, h.service.MaxFileBytes())
 	if err != nil {
 		writeMultipartError(ctx, err)
 		return
@@ -233,7 +233,7 @@ func (h *Handler) deleteImage(ctx *silverlining.Context, id string) {
 	ctx.WriteHeader(http.StatusNoContent)
 }
 
-func readMultipartDrawing(ctx *silverlining.Context, _ string) (model.DrawingImageInput, io.Reader, string, string, error) {
+func readMultipartDrawing(ctx *silverlining.Context, maxFileBytes int64) (model.DrawingImageInput, io.Reader, string, string, error) {
 	reader, err := ctx.MultipartReader()
 	if err != nil {
 		return model.DrawingImageInput{}, nil, "", "", errors.New("expected multipart/form-data")
@@ -267,9 +267,12 @@ func readMultipartDrawing(ctx *silverlining.Context, _ string) (model.DrawingIma
 				mimeType = model.DefaultMimeType
 			}
 			filename = part.FileName()
-			fileBytes, err = io.ReadAll(part)
+			fileBytes, err = io.ReadAll(io.LimitReader(part, maxFileBytes+1))
 			if err != nil {
 				return model.DrawingImageInput{}, nil, "", "", err
+			}
+			if int64(len(fileBytes)) > maxFileBytes {
+				return model.DrawingImageInput{}, nil, "", "", service.ErrPayloadTooLarge
 			}
 		default:
 			part.Close()
