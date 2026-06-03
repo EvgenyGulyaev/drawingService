@@ -119,9 +119,35 @@ func TestDrawingServiceCreateRollsBackOnMetadataFailure(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	// After successful create, list returns at least one
-	items, _ := svc.List()
+	items, _ := svc.List(context.Background())
 	if len(items) != 1 {
 		t.Fatalf("expected one image")
+	}
+}
+
+func TestDrawingServiceListRemovesMissingDriveFiles(t *testing.T) {
+	svc, storage := newTestService(t, 0)
+	img, err := svc.Create(context.Background(), CreateInput{
+		Input:    model.DrawingImageInput{Title: "orphan", Width: 100, Height: 100},
+		Filename: "x.png",
+		MimeType: "image/png",
+		Body:     bytes.NewReader(pngBytes(8)),
+		Actor:    "user@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	storage.RemoveFile(img.DriveFileID)
+
+	items, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected missing drive file to be removed from list, got %d items", len(items))
+	}
+	if _, err := svc.Get(img.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected stale metadata to be removed, got %v", err)
 	}
 }
 

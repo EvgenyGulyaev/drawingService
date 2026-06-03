@@ -116,7 +116,9 @@ func (h *Handler) listImages(ctx *silverlining.Context) {
 		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
 		return
 	}
-	items, err := h.service.List()
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	items, err := h.service.List(hctx)
 	if err != nil {
 		httperror.Write(ctx, http.StatusInternalServerError, err.Error())
 		return

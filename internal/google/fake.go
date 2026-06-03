@@ -89,13 +89,21 @@ func (f *FakeStorage) Delete(_ context.Context, fileID string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
+	f.RemoveFile(fileID)
+	return nil
+}
+
+func (f *FakeStorage) RemoveFile(fileID string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if _, ok := f.files[fileID]; !ok {
-		return nil
-	}
 	delete(f.files, fileID)
-	return nil
+}
+
+func (f *FakeStorage) Exists(_ context.Context, fileID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.files[fileID]
+	return ok, nil
 }
 
 func (f *FakeStorage) HasFile(fileID string) bool {

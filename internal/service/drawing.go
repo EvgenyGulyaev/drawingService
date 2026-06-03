@@ -41,8 +41,30 @@ func NewDrawingService(repo *store.DrawingRepository, storage google.Storage, ma
 	}
 }
 
-func (s *DrawingService) List() ([]model.DrawingImage, error) {
-	return s.repo.List()
+func (s *DrawingService) List(ctx context.Context) ([]model.DrawingImage, error) {
+	items, err := s.repo.List()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]model.DrawingImage, 0, len(items))
+	for _, item := range items {
+		stored, err := s.repo.FindWithDriveID(item.ID)
+		if err != nil {
+			return nil, err
+		}
+		exists, err := s.storage.Exists(ctx, stored.DriveFileID)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			if _, err := s.repo.Delete(item.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+				return nil, err
+			}
+			continue
+		}
+		result = append(result, item)
+	}
+	return result, nil
 }
 
 func (s *DrawingService) MaxFileBytes() int64 {

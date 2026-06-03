@@ -23,6 +23,7 @@ type Storage interface {
 	UpdatePNG(ctx context.Context, fileID string, body io.Reader, size int64) error
 	Download(ctx context.Context, fileID string) (io.ReadCloser, string, error)
 	Delete(ctx context.Context, fileID string) error
+	Exists(ctx context.Context, fileID string) (bool, error)
 }
 
 type DriveStorage struct {
@@ -155,6 +156,24 @@ func (s *DriveStorage) Delete(ctx context.Context, fileID string) error {
 		return nil
 	}
 	return fmt.Errorf("drive delete: %w", err)
+}
+
+func (s *DriveStorage) Exists(ctx context.Context, fileID string) (bool, error) {
+	if fileID == "" {
+		return false, errors.New("fileID is required")
+	}
+	file, err := s.service.Files.Get(fileID).
+		Fields("id,trashed").
+		SupportsAllDrives(true).
+		Context(ctx).
+		Do()
+	if err == nil {
+		return !file.Trashed, nil
+	}
+	if isNotFound(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("drive exists: %w", err)
 }
 
 func isNotFound(err error) bool {
