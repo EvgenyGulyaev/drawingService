@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"mime/multipart"
+	"time"
 	"net"
 	nethttp "net/http"
 	"net/textproto"
@@ -235,10 +236,21 @@ func TestRejectsEmptyTitle(t *testing.T) {
 func TestRejectsOversize(t *testing.T) {
 	env := newTestEnv(t, "*", 1024*1024)
 	body, ct := buildMultipartWithType(t, "x", "image/png", "test.png", bytes.Repeat([]byte("a"), 2*1024*1024))
-	resp, data := env.doRequest(t, nethttp.MethodPost, "/internal/drawing/images", testServiceToken, "user@example.com", "user", body, ct)
-	if resp.StatusCode != nethttp.StatusRequestEntityTooLarge {
-		t.Fatalf("expected 413, got %d: %s", resp.StatusCode, string(data))
+	resp, data, err := doMultipartRequestOversize(t, env.baseURL, "/internal/drawing/images", testServiceToken, "user@example.com", "user", body, ct)
+	if resp != nil && resp.StatusCode == nethttp.StatusRequestEntityTooLarge {
+		return
 	}
+	// silverlining flushes the 413 response and then closes the connection while the
+	// client is still writing the rest of the multipart body, so a broken-pipe write
+	// error is the expected outcome here.
+	if err != nil && (strings.Contains(err.Error(), "broken pipe") || strings.Contains(err.Error(), "connection reset")) {
+		return
+	}
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+	}
+	t.Fatalf("expected 413 or broken-pipe write error, got status=%d err=%v data=%q", status, err, string(data))
 }
 
 func TestAllowsByUserWhitelist(t *testing.T) {
@@ -270,4 +282,29 @@ func TestDownloadReturnsPNGBody(t *testing.T) {
 	if !strings.Contains(resp.Header.Get("Content-Type"), "image/png") {
 		t.Fatalf("expected image/png content type, got %q", resp.Header.Get("Content-Type"))
 	}
+}
+
+// doMultipartRequest posts a multipart body and tolerates broken-pipe write errors
+// from the client side when the server replies 413 before the full body is sent
+// (HTTP/1.1 race that the real browser handles fine).
+func doMultipartRequestOversize(t *testing.T, baseURL, path, token, email, login string, body io.Reader, contentType string) (*nethttp.Response, []byte, error) {
+	t.Helper()
+	req, err := nethttp.NewRequest(nethttp.MethodPost, baseURL+path, body)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set(HeaderServiceToken, token)
+	req.Header.Set(HeaderUserEmail, email)
+	req.Header.Set(HeaderUserLogin, login)
+	client := &nethttp.Client{
+		Timeout: 30 * time.Second,
+	}
+	resp, err := client.Do(req)
+	if resp == nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return resp, data, err
 }

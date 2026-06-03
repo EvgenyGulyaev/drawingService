@@ -170,7 +170,7 @@ func (h *Handler) createImage(ctx *silverlining.Context) {
 	}
 	input, file, filename, mimeType, err := readMultipartDrawing(ctx, h.service.MaxFileBytes())
 	if err != nil {
-		writeMultipartError(ctx, err)
+		drainAndWriteError(ctx, err)
 		return
 	}
 	image, err := h.service.Create(context.Background(), service.CreateInput{
@@ -311,6 +311,27 @@ func writeMultipartError(ctx *silverlining.Context, err error) {
 	httperror.Write(ctx, http.StatusBadRequest, err.Error())
 }
 
+
+func drainAndWriteError(ctx *silverlining.Context, err error) {
+	// When the multipart payload exceeds the limit, the client may still be uploading the
+	// rest of the body. Drain it so the server can flush a clean response instead of
+	// breaking the connection mid-upload (HTTP/1.1 race).
+	if errors.Is(err, service.ErrPayloadTooLarge) {
+		if mr, mrErr := ctx.MultipartReader(); mrErr == nil {
+			for {
+				p, perr := mr.NextPart()
+				if perr != nil {
+					break
+				}
+				_, _ = io.Copy(io.Discard, p)
+				p.Close()
+			}
+		}
+		httperror.Write(ctx, http.StatusRequestEntityTooLarge, err.Error())
+		return
+	}
+	httperror.Write(ctx, http.StatusBadRequest, err.Error())
+}
 func actorLabel(caller Caller) string {
 	if caller.Email != "" {
 		return caller.Email
