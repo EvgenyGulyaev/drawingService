@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -98,9 +97,6 @@ func (r *DrawingRepository) List() ([]model.DrawingImage, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.SliceStable(result, func(i, j int) bool {
-		return result[i].CreatedAt.After(result[j].CreatedAt)
-	})
 	return result, nil
 }
 

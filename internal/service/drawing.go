@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"path/filepath"
 	"strings"
 
@@ -85,7 +86,9 @@ func (s *DrawingService) Create(ctx context.Context, in CreateInput) (model.Draw
 
 	image, err := s.repo.Create(in.Input, fileID, int64(len(data)), mime, in.Actor)
 	if err != nil {
-		_ = s.storage.Delete(ctx, fileID)
+		if cleanupErr := s.storage.Delete(ctx, fileID); cleanupErr != nil {
+			log.Printf("drawing service: failed to cleanup drive file %q after repo create error: %v", fileID, cleanupErr)
+		}
 		return model.DrawingImage{}, err
 	}
 	return image, nil

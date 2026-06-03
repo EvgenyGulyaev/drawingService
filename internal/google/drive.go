@@ -42,10 +42,6 @@ func NewDriveStorage(ctx context.Context, credentialsFile, folderID string) (*Dr
 	return &DriveStorage{service: svc, folderID: folderID}, nil
 }
 
-func NewDriveStorageFromService(svc *drive.Service, folderID string) *DriveStorage {
-	return &DriveStorage{service: svc, folderID: folderID}
-}
-
 func (s *DriveStorage) UploadPNG(ctx context.Context, name string, body io.Reader, size int64) (string, error) {
 	if name == "" {
 		return "", ErrInvalidName

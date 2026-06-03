@@ -7,10 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"drawingService/internal/model"
@@ -31,7 +29,6 @@ func NewHandler(auth AuthConfig, svc *service.DrawingService) *Handler {
 }
 
 func (h *Handler) Serve(ctx *silverlining.Context) {
-	updateCORS(ctx)
 	switch ctx.Method() {
 	case silverlining.MethodOPTIONS:
 		ctx.WriteHeader(http.StatusNoContent)
@@ -236,13 +233,6 @@ func (h *Handler) deleteImage(ctx *silverlining.Context, id string) {
 	ctx.WriteHeader(http.StatusNoContent)
 }
 
-type multipartPayload struct {
-	Input     model.DrawingImageInput
-	Body      io.Reader
-	Filename  string
-	MimeType  string
-}
-
 func readMultipartDrawing(ctx *silverlining.Context, _ string) (model.DrawingImageInput, io.Reader, string, string, error) {
 	reader, err := ctx.MultipartReader()
 	if err != nil {
@@ -339,11 +329,3 @@ func splitPath(path string) []string {
 	return parts
 }
 
-func updateCORS(ctx *silverlining.Context) {
-	ctx.ResponseHeaders().Set("Access-Control-Allow-Origin", "*")
-	ctx.ResponseHeaders().Set("Access-Control-Allow-Headers", "Content-Type, X-Service-Token, X-User-Email, X-User-Login")
-	ctx.ResponseHeaders().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-}
-
-var _ = strconv.Itoa
-var _ = multipart.ErrMessageTooLarge

@@ -50,10 +50,6 @@ func Load() (*Config, error) {
 		}
 		cfg.AllowedUsers = append(cfg.AllowedUsers, entry)
 	}
-	if allowed == "" {
-		return nil, errors.New("DRAWING_ALLOWED_USERS is required")
-	}
-
 	canvasWidth, err := strconv.Atoi(getenv("DRAWING_CANVAS_WIDTH", "1600"))
 	if err != nil || canvasWidth <= 0 {
 		return nil, fmt.Errorf("DRAWING_CANVAS_WIDTH must be a positive integer")
