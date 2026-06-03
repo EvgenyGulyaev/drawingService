@@ -21,9 +21,9 @@ type Caller struct {
 }
 
 type AuthConfig struct {
-	ServiceToken  string
-	AllowedUsers  []string
-	AllowAnyUser  bool
+	ServiceToken string
+	AllowedUsers []string
+	AllowAnyUser bool
 }
 
 func RequireServiceToken(auth AuthConfig) func(silverlining.Handler) silverlining.Handler {

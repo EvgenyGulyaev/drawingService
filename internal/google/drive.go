@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("file not found in storage")
-	ErrInvalidName  = errors.New("file name is required")
+	ErrNotFound    = errors.New("file not found in storage")
+	ErrInvalidName = errors.New("file name is required")
 )
 
 type Storage interface {

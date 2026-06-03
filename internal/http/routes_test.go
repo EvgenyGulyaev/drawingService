@@ -3,10 +3,9 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"errors"
+	"io"
 	"mime/multipart"
-	"time"
 	"net"
 	nethttp "net/http"
 	"net/textproto"
@@ -14,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"drawingService/internal/google"
 	"drawingService/internal/model"

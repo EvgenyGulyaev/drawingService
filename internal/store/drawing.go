@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	DrawingImagesBucket  = []byte("DrawingImages")
+	DrawingImagesBucket   = []byte("DrawingImages")
 	DrawingDriveIDsBucket = []byte("DrawingDriveIDs")
 )
 
@@ -49,15 +49,15 @@ func (r *DrawingRepository) Create(input model.DrawingImageInput, driveFileID st
 
 	now := time.Now().UTC()
 	image := model.DrawingImage{
-		Title:       title,
-		MimeType:    mimeType,
-		Size:        size,
-		Width:       input.Width,
-		Height:      input.Height,
-		CreatedBy:   actor,
-		UpdatedBy:   actor,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		Title:     title,
+		MimeType:  mimeType,
+		Size:      size,
+		Width:     input.Width,
+		Height:    input.Height,
+		CreatedBy: actor,
+		UpdatedBy: actor,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	err = r.db.Update(func(tx *bolt.Tx) error {

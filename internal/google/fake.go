@@ -9,14 +9,14 @@ import (
 )
 
 type FakeStorage struct {
-	mu        sync.Mutex
-	files     map[string][]byte
-	pingErr   error
-	uploadErr error
-	updateErr error
+	mu          sync.Mutex
+	files       map[string][]byte
+	pingErr     error
+	uploadErr   error
+	updateErr   error
 	downloadErr error
-	deleteErr error
-	nextID    int
+	deleteErr   error
+	nextID      int
 }
 
 func NewFakeStorage() *FakeStorage {
@@ -121,10 +121,10 @@ func intToStr(n int) string {
 	return string(digits)
 }
 
-func (f *FakeStorage) SetUploadError(err error)    { f.uploadErr = err }
-func (f *FakeStorage) SetUpdateError(err error)    { f.updateErr = err }
-func (f *FakeStorage) SetDownloadError(err error)  { f.downloadErr = err }
-func (f *FakeStorage) SetDeleteError(err error)    { f.deleteErr = err }
+func (f *FakeStorage) SetUploadError(err error)   { f.uploadErr = err }
+func (f *FakeStorage) SetUpdateError(err error)   { f.updateErr = err }
+func (f *FakeStorage) SetDownloadError(err error) { f.downloadErr = err }
+func (f *FakeStorage) SetDeleteError(err error)   { f.deleteErr = err }
 
 func (f *FakeStorage) Ping(_ context.Context) error {
 	return f.pingErr

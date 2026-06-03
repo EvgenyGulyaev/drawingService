@@ -18,8 +18,8 @@ import (
 
 var (
 	ErrUnsupportedMime = errors.New("only image/png is allowed")
-	ErrEmptyPayload     = errors.New("file is empty")
-	ErrPayloadTooLarge  = errors.New("file is too large")
+	ErrEmptyPayload    = errors.New("file is empty")
+	ErrPayloadTooLarge = errors.New("file is too large")
 )
 
 type DrawingService struct {
@@ -65,12 +65,12 @@ func (s *DrawingService) Download(ctx context.Context, id string) (io.ReadCloser
 }
 
 type CreateInput struct {
-	Input     model.DrawingImageInput
-	Filename  string
-	MimeType  string
-	Body      io.Reader
-	Size      int64
-	Actor     string
+	Input    model.DrawingImageInput
+	Filename string
+	MimeType string
+	Body     io.Reader
+	Size     int64
+	Actor    string
 }
 
 func (s *DrawingService) Create(ctx context.Context, in CreateInput) (model.DrawingImage, error) {
