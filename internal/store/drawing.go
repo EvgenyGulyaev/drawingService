@@ -19,10 +19,6 @@ type DrawingRepository struct {
 	db *Db
 }
 
-func GetDrawingRepository() *DrawingRepository {
-	return &DrawingRepository{db: Init("")}
-}
-
 func NewDrawingRepository(db *Db) *DrawingRepository {
 	return &DrawingRepository{db: db}
 }

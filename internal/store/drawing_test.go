@@ -9,7 +9,7 @@ import (
 func newTestRepo(t *testing.T) *DrawingRepository {
 	t.Helper()
 	dir := t.TempDir()
-	db := Init(filepath.Join(dir, "drawings.db"))
+	db := OpenDb(filepath.Join(dir, "drawings.db"))
 	repo := NewDrawingRepository(db)
 	if err := repo.EnsureBuckets(); err != nil {
 		t.Fatalf("ensure buckets: %v", err)

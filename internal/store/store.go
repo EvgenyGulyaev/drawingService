@@ -11,18 +11,15 @@ type Db struct {
 	DB       *bolt.DB
 }
 
-var instance *Db
-
-func Init(filename string) *Db {
-	if instance != nil {
-		return instance
+func OpenDb(filename string) *Db {
+	if filename == "" {
+		filename = "drawing.db"
 	}
 	db, err := bolt.Open(filename, 0o600, nil)
 	if err != nil {
 		log.Fatalf("failed to open bolt db: %v", err)
 	}
-	instance = &Db{filename: filename, DB: db}
-	return instance
+	return &Db{filename: filename, DB: db}
 }
 
 func (d *Db) EnsureBucket(name []byte) error {
