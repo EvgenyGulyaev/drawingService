@@ -283,7 +283,7 @@ func readMultipartDrawing(ctx *silverlining.Context, maxFileBytes int64) (model.
 		name := part.FormName()
 		switch name {
 		case "metadata":
-			data, err := io.ReadAll(io.LimitReader(part, maxMetadataSize))
+			data, err := io.ReadAll(io.LimitReader(part, maxMetadataSize+1))
 			if err != nil {
 				return model.DrawingImageInput{}, nil, "", "", err
 			}

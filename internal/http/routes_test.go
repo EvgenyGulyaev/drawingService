@@ -352,3 +352,13 @@ func TestHealthzReportsUnavailableWhenDriveFails(t *testing.T) {
 		t.Fatalf("expected 503, got %d: %s", resp.StatusCode, string(data))
 	}
 }
+
+func TestRejectsMetadataTooLarge(t *testing.T) {
+	env := newTestEnv(t, "*", 0)
+	bigTitle := strings.Repeat("a", 130*1024)
+	body, ct := buildMultipartWithType(t, bigTitle, "image/png", "test.png", []byte("PNGDATA"))
+	resp, data := env.doRequest(t, nethttp.MethodPost, "/internal/drawing/images", testServiceToken, "u@e.com", "u", body, ct)
+	if resp.StatusCode != nethttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(data))
+	}
+}
