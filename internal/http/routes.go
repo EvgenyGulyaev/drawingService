@@ -295,7 +295,7 @@ func readMultipartDrawing(ctx *silverlining.Context, maxFileBytes int64) (model.
 			}
 		case "file":
 			mimeType = strings.ToLower(strings.TrimSpace(part.Header.Get("Content-Type")))
-			if mimeType == "" {
+			if mimeType == "" || mimeType == "application/octet-stream" {
 				mimeType = model.DefaultMimeType
 			}
 			filename = part.FileName()

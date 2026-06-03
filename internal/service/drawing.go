@@ -107,7 +107,9 @@ func (s *DrawingService) Create(ctx context.Context, in CreateInput) (model.Draw
 		}
 		return model.DrawingImage{}, err
 	}
-	// Return the image with DriveFileID set so callers can use it directly.
+	// DriveFileID is only available on this in-memory object for immediate use
+	// (e.g. in tests). It is never serialized to JSON (model.DriveFileID has json:"-").
+	// External callers must use FindWithDriveID to get the persistent DriveFileID.
 	image.DriveFileID = fileID
 	return image, nil
 }

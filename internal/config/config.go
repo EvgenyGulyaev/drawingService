@@ -20,8 +20,6 @@ type Config struct {
 	CredentialsFile string
 	AllowedUsers    []string
 	AllowAnyUser    bool
-	CanvasWidth     int
-	CanvasHeight    int
 	MaxImageBytes   int64
 }
 
@@ -50,17 +48,6 @@ func Load() (*Config, error) {
 		}
 		cfg.AllowedUsers = append(cfg.AllowedUsers, entry)
 	}
-	canvasWidth, err := strconv.Atoi(getenv("DRAWING_CANVAS_WIDTH", "1600"))
-	if err != nil || canvasWidth <= 0 {
-		return nil, fmt.Errorf("DRAWING_CANVAS_WIDTH must be a positive integer")
-	}
-	cfg.CanvasWidth = canvasWidth
-
-	canvasHeight, err := strconv.Atoi(getenv("DRAWING_CANVAS_HEIGHT", "1000"))
-	if err != nil || canvasHeight <= 0 {
-		return nil, fmt.Errorf("DRAWING_CANVAS_HEIGHT must be a positive integer")
-	}
-	cfg.CanvasHeight = canvasHeight
 
 	maxBytes, err := strconv.ParseInt(getenv("MAX_IMAGE_BYTES", "10485760"), 10, 64)
 	if err != nil || maxBytes <= 0 {
