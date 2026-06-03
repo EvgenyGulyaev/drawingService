@@ -33,7 +33,7 @@ func pngBytes(n int) []byte {
 func TestDrawingServiceCreateValidatesTitle(t *testing.T) {
 	svc, _ := newTestService(t, 0)
 	_, err := svc.Create(context.Background(), CreateInput{
-		Input:    model.DrawingImageInput{Title: "  ", Width: 10, Height: 10},
+		Input:    model.DrawingImageInput{Title: "  ", Width: 100, Height: 100},
 		Filename: "a.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(pngBytes(8)),
@@ -47,7 +47,7 @@ func TestDrawingServiceCreateValidatesTitle(t *testing.T) {
 func TestDrawingServiceCreateRejectsNonPNG(t *testing.T) {
 	svc, _ := newTestService(t, 0)
 	_, err := svc.Create(context.Background(), CreateInput{
-		Input:    model.DrawingImageInput{Title: "x", Width: 10, Height: 10},
+		Input:    model.DrawingImageInput{Title: "x", Width: 100, Height: 100},
 		Filename: "a.jpg",
 		MimeType: "image/jpeg",
 		Body:     bytes.NewReader(pngBytes(8)),
@@ -93,7 +93,7 @@ func TestDrawingServiceCreateRollsBackOnMetadataFailure(t *testing.T) {
 
 	// Use a title containing forbidden chars to make the filename non-empty but ensure name
 	_, err := svc.Create(context.Background(), CreateInput{
-		Input:    model.DrawingImageInput{Title: "ok", Width: 10, Height: 10},
+		Input:    model.DrawingImageInput{Title: "ok", Width: 100, Height: 100},
 		Filename: "x.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(pngBytes(8)),
@@ -112,7 +112,7 @@ func TestDrawingServiceCreateRollsBackOnMetadataFailure(t *testing.T) {
 func TestDrawingServiceUpdate(t *testing.T) {
 	svc, storage := newTestService(t, 0)
 	img, err := svc.Create(context.Background(), CreateInput{
-		Input:    model.DrawingImageInput{Title: "Old", Width: 10, Height: 10},
+		Input:    model.DrawingImageInput{Title: "Old", Width: 100, Height: 100},
 		Filename: "x.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(pngBytes(8)),
@@ -123,7 +123,7 @@ func TestDrawingServiceUpdate(t *testing.T) {
 	}
 
 	updated, err := svc.Update(context.Background(), img.ID, UpdateInput{
-		Input:    model.DrawingImageInput{Title: "New", Width: 20, Height: 30},
+		Input:    model.DrawingImageInput{Title: "New", Width: 200, Height: 300},
 		Filename: "x.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(pngBytes(16)),
@@ -146,7 +146,7 @@ func TestDrawingServiceUpdate(t *testing.T) {
 func TestDrawingServiceUpdateRequiresExisting(t *testing.T) {
 	svc, _ := newTestService(t, 0)
 	_, err := svc.Update(context.Background(), "00000000000000000099", UpdateInput{
-		Input:    model.DrawingImageInput{Title: "x", Width: 1, Height: 1},
+		Input:    model.DrawingImageInput{Title: "x", Width: 100, Height: 100},
 		Filename: "x.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(pngBytes(8)),
@@ -160,7 +160,7 @@ func TestDrawingServiceUpdateRequiresExisting(t *testing.T) {
 func TestDrawingServiceDeleteRemovesBoth(t *testing.T) {
 	svc, storage := newTestService(t, 0)
 	img, err := svc.Create(context.Background(), CreateInput{
-		Input:    model.DrawingImageInput{Title: "x", Width: 1, Height: 1},
+		Input:    model.DrawingImageInput{Title: "x", Width: 100, Height: 100},
 		Filename: "x.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(pngBytes(8)),
@@ -183,7 +183,7 @@ func TestDrawingServiceDeleteRemovesBoth(t *testing.T) {
 func TestDrawingServiceDeleteKeepsMetadataIfStorageFails(t *testing.T) {
 	svc, storage := newTestService(t, 0)
 	img, err := svc.Create(context.Background(), CreateInput{
-		Input:    model.DrawingImageInput{Title: "x", Width: 1, Height: 1},
+		Input:    model.DrawingImageInput{Title: "x", Width: 100, Height: 100},
 		Filename: "x.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(pngBytes(8)),
@@ -204,7 +204,7 @@ func TestDrawingServiceDeleteKeepsMetadataIfStorageFails(t *testing.T) {
 func TestDrawingServiceCreateRejectsEmptyPayload(t *testing.T) {
 	svc, _ := newTestService(t, 0)
 	_, err := svc.Create(context.Background(), CreateInput{
-		Input:    model.DrawingImageInput{Title: "x", Width: 1, Height: 1},
+		Input:    model.DrawingImageInput{Title: "x", Width: 100, Height: 100},
 		Filename: "x.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(nil),
@@ -218,7 +218,7 @@ func TestDrawingServiceCreateRejectsEmptyPayload(t *testing.T) {
 func TestDrawingServiceCreateEnforcesMaxBytes(t *testing.T) {
 	svc, _ := newTestService(t, 16)
 	_, err := svc.Create(context.Background(), CreateInput{
-		Input:    model.DrawingImageInput{Title: "x", Width: 1, Height: 1},
+		Input:    model.DrawingImageInput{Title: "x", Width: 100, Height: 100},
 		Filename: "x.png",
 		MimeType: "image/png",
 		Body:     bytes.NewReader(pngBytes(64)),
@@ -236,5 +236,29 @@ func TestBuildDriveNameSanitizes(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, ".png") {
 		t.Fatalf("expected .png suffix, got %q", got)
+	}
+}
+
+func TestDrawingServiceRejectsOutOfRangeDimensions(t *testing.T) {
+	svc, _ := newTestService(t, 0)
+	// Too small
+	_, err := svc.Create(context.Background(), CreateInput{
+		Input:    model.DrawingImageInput{Title: "small", Width: 10, Height: 10},
+		MimeType: "image/png",
+		Body:     bytes.NewReader(pngBytes(8)),
+		Actor:    "u@e.com",
+	})
+	if !errors.Is(err, model.ErrCanvasTooSmall) {
+		t.Fatalf("expected ErrCanvasTooSmall, got %v", err)
+	}
+	// Too large
+	_, err = svc.Create(context.Background(), CreateInput{
+		Input:    model.DrawingImageInput{Title: "big", Width: 9999, Height: 9999},
+		MimeType: "image/png",
+		Body:     bytes.NewReader(pngBytes(8)),
+		Actor:    "u@e.com",
+	})
+	if !errors.Is(err, model.ErrCanvasTooLarge) {
+		t.Fatalf("expected ErrCanvasTooLarge, got %v", err)
 	}
 }

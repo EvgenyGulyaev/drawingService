@@ -81,6 +81,9 @@ func (s *DrawingService) Create(ctx context.Context, in CreateInput) (model.Draw
 	if mime != model.DefaultMimeType {
 		return model.DrawingImage{}, ErrUnsupportedMime
 	}
+	if err := in.Input.ValidateDimensions(); err != nil {
+		return model.DrawingImage{}, err
+	}
 	data, err := readAllLimited(in.Body, s.maxImageBytes)
 	if err != nil {
 		return model.DrawingImage{}, err
@@ -128,6 +131,9 @@ func (s *DrawingService) Update(ctx context.Context, id string, in UpdateInput) 
 	}
 	if mime != model.DefaultMimeType {
 		return model.DrawingImage{}, ErrUnsupportedMime
+	}
+	if err := in.Input.ValidateDimensions(); err != nil {
+		return model.DrawingImage{}, err
 	}
 	data, err := readAllLimited(in.Body, s.maxImageBytes)
 	if err != nil {

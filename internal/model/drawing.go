@@ -9,6 +9,13 @@ const (
 	TitleMaxLength  = 120
 	DefaultMimeType = "image/png"
 	DrawingIDFormat = "%020d"
+	CanvasMinDim    = 50
+	CanvasMaxDim    = 4096
+)
+
+var (
+	ErrCanvasTooSmall = errors.New("canvas dimensions below minimum")
+	ErrCanvasTooLarge = errors.New("canvas dimensions above maximum")
 )
 
 var (
@@ -34,6 +41,16 @@ type DrawingImageInput struct {
 	Title  string `json:"title"`
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
+}
+
+func (in DrawingImageInput) ValidateDimensions() error {
+	if in.Width < CanvasMinDim || in.Height < CanvasMinDim {
+		return ErrCanvasTooSmall
+	}
+	if in.Width > CanvasMaxDim || in.Height > CanvasMaxDim {
+		return ErrCanvasTooLarge
+	}
+	return nil
 }
 
 func NormalizeTitle(value string) (string, error) {
