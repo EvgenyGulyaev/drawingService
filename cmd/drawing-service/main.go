@@ -31,7 +31,13 @@ func main() {
 		log.Fatalf("ensure buckets: %v", err)
 	}
 
-	drive, err := google.NewDriveStorage(context.Background(), cfg.CredentialsFile, cfg.FolderID)
+	drive, err := google.NewDriveStorage(context.Background(), google.DriveOptions{
+		FolderID:          cfg.FolderID,
+		CredentialsFile:   cfg.CredentialsFile,
+		OAuthClientID:     cfg.OAuthClientID,
+		OAuthClientSecret: cfg.OAuthClientSecret,
+		OAuthRefreshToken: cfg.OAuthRefreshToken,
+	})
 	if err != nil {
 		log.Fatalf("init drive storage: %v", err)
 	}

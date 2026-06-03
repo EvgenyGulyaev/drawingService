@@ -2,7 +2,7 @@
 
 Микросервис хранения PNG-рисунков админки.
 
-- Хранит PNG-файлы в Google Drive через service account.
+- Хранит PNG-файлы в Google Drive через service account или OAuth refresh token.
 - Хранит metadata в локальной bbolt-БД.
 - Не имеет доступа к пользователям и не занимается авторизацией.
 - Слушает только на `127.0.0.1:8090`, наружу не торчит.
@@ -11,9 +11,11 @@
 
 1. Скопировать `.env.example` в `.env` и заполнить:
    - `DRAWING_SERVICE_TOKEN` — общий токен с основным backend.
-   - `GOOGLE_SERVICE_ACCOUNT_JSON_PATH` — путь к JSON-ключу service account.
    - `GOOGLE_DRIVE_FOLDER_ID` — ID папки Google Drive.
-2. Положить JSON service account в `secrets/google-service-account.json`.
+   - `GOOGLE_DRIVE_AUTH_MODE` — `service_account` или `oauth`.
+   - для `service_account`: `GOOGLE_SERVICE_ACCOUNT_JSON_PATH` — путь к JSON-ключу service account.
+   - для `oauth`: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN`.
+2. Если выбран `service_account`, положить JSON в `secrets/google-service-account.json`.
 3. Запустить:
 
 ```bash

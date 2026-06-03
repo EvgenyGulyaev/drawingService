@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
@@ -28,18 +30,53 @@ type DriveStorage struct {
 	folderID string
 }
 
-func NewDriveStorage(ctx context.Context, credentialsFile, folderID string) (*DriveStorage, error) {
-	if folderID == "" {
+type DriveOptions struct {
+	FolderID          string
+	CredentialsFile   string
+	OAuthClientID     string
+	OAuthClientSecret string
+	OAuthRefreshToken string
+}
+
+func NewDriveStorage(ctx context.Context, opts DriveOptions) (*DriveStorage, error) {
+	if opts.FolderID == "" {
 		return nil, errors.New("folderID is required")
 	}
-	if credentialsFile == "" {
-		return nil, errors.New("credentials file is required")
+	serviceOptions, err := buildServiceOptions(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
-	svc, err := drive.NewService(ctx, option.WithCredentialsFile(credentialsFile))
+	svc, err := drive.NewService(ctx, serviceOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("create drive service: %w", err)
 	}
-	return &DriveStorage{service: svc, folderID: folderID}, nil
+	return &DriveStorage{service: svc, folderID: opts.FolderID}, nil
+}
+
+func buildServiceOptions(ctx context.Context, opts DriveOptions) ([]option.ClientOption, error) {
+	if opts.OAuthRefreshToken != "" || opts.OAuthClientID != "" || opts.OAuthClientSecret != "" {
+		if opts.OAuthClientID == "" {
+			return nil, errors.New("oauth client id is required")
+		}
+		if opts.OAuthClientSecret == "" {
+			return nil, errors.New("oauth client secret is required")
+		}
+		if opts.OAuthRefreshToken == "" {
+			return nil, errors.New("oauth refresh token is required")
+		}
+		cfg := &oauth2.Config{
+			ClientID:     opts.OAuthClientID,
+			ClientSecret: opts.OAuthClientSecret,
+			Endpoint:     google.Endpoint,
+			Scopes:       []string{drive.DriveScope},
+		}
+		client := cfg.Client(ctx, &oauth2.Token{RefreshToken: opts.OAuthRefreshToken})
+		return []option.ClientOption{option.WithHTTPClient(client)}, nil
+	}
+	if opts.CredentialsFile == "" {
+		return nil, errors.New("credentials file is required")
+	}
+	return []option.ClientOption{option.WithCredentialsFile(opts.CredentialsFile)}, nil
 }
 
 func (s *DriveStorage) UploadPNG(ctx context.Context, name string, body io.Reader, size int64) (string, error) {
@@ -57,7 +94,11 @@ func (s *DriveStorage) UploadPNG(ctx context.Context, name string, body io.Reade
 		MimeType: "image/png",
 		Parents:  []string{s.folderID},
 	}
-	created, err := s.service.Files.Create(file).Media(body, googleapi.ContentType("image/png")).Context(ctx).Do()
+	created, err := s.service.Files.Create(file).
+		Media(body, googleapi.ContentType("image/png")).
+		SupportsAllDrives(true).
+		Context(ctx).
+		Do()
 	if err != nil {
 		return "", fmt.Errorf("drive create: %w", err)
 	}
@@ -74,7 +115,11 @@ func (s *DriveStorage) UpdatePNG(ctx context.Context, fileID string, body io.Rea
 	if size <= 0 {
 		return errors.New("size must be positive")
 	}
-	_, err := s.service.Files.Update(fileID, &drive.File{}).Media(body, googleapi.ContentType("image/png")).Context(ctx).Do()
+	_, err := s.service.Files.Update(fileID, &drive.File{}).
+		Media(body, googleapi.ContentType("image/png")).
+		SupportsAllDrives(true).
+		Context(ctx).
+		Do()
 	if err != nil {
 		return fmt.Errorf("drive update: %w", err)
 	}
@@ -85,7 +130,10 @@ func (s *DriveStorage) Download(ctx context.Context, fileID string) (io.ReadClos
 	if fileID == "" {
 		return nil, "", errors.New("fileID is required")
 	}
-	resp, err := s.service.Files.Get(fileID).Context(ctx).Download()
+	resp, err := s.service.Files.Get(fileID).
+		SupportsAllDrives(true).
+		Context(ctx).
+		Download()
 	if err != nil {
 		return nil, "", fmt.Errorf("drive download: %w", err)
 	}
@@ -96,7 +144,10 @@ func (s *DriveStorage) Delete(ctx context.Context, fileID string) error {
 	if fileID == "" {
 		return errors.New("fileID is required")
 	}
-	err := s.service.Files.Delete(fileID).Context(ctx).Do()
+	err := s.service.Files.Delete(fileID).
+		SupportsAllDrives(true).
+		Context(ctx).
+		Do()
 	if err == nil {
 		return nil
 	}

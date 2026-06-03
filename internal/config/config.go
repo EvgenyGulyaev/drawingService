@@ -12,16 +12,25 @@ import (
 )
 
 type Config struct {
-	Port            string
-	Host            string
-	DBPath          string
-	ServiceToken    string
-	FolderID        string
-	CredentialsFile string
-	AllowedUsers    []string
-	AllowAnyUser    bool
-	MaxImageBytes   int64
+	Port              string
+	Host              string
+	DBPath            string
+	ServiceToken      string
+	FolderID          string
+	DriveAuthMode     string
+	CredentialsFile   string
+	OAuthClientID     string
+	OAuthClientSecret string
+	OAuthRefreshToken string
+	AllowedUsers      []string
+	AllowAnyUser      bool
+	MaxImageBytes     int64
 }
+
+const (
+	DriveAuthModeServiceAccount = "service_account"
+	DriveAuthModeOAuth          = "oauth"
+)
 
 func Load() (*Config, error) {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -29,12 +38,16 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		Port:            getenv("PORT", "8090"),
-		Host:            getenv("HOST", "127.0.0.1"),
-		DBPath:          getenv("DRAWING_DB_PATH", "./drawing.db"),
-		ServiceToken:    os.Getenv("DRAWING_SERVICE_TOKEN"),
-		FolderID:        os.Getenv("GOOGLE_DRIVE_FOLDER_ID"),
-		CredentialsFile: os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON_PATH"),
+		Port:              getenv("PORT", "8090"),
+		Host:              getenv("HOST", "127.0.0.1"),
+		DBPath:            getenv("DRAWING_DB_PATH", "./drawing.db"),
+		ServiceToken:      os.Getenv("DRAWING_SERVICE_TOKEN"),
+		FolderID:          os.Getenv("GOOGLE_DRIVE_FOLDER_ID"),
+		DriveAuthMode:     strings.ToLower(getenv("GOOGLE_DRIVE_AUTH_MODE", DriveAuthModeServiceAccount)),
+		CredentialsFile:   os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON_PATH"),
+		OAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
+		OAuthClientSecret: os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+		OAuthRefreshToken: os.Getenv("GOOGLE_OAUTH_REFRESH_TOKEN"),
 	}
 
 	allowed := getenv("DRAWING_ALLOWED_USERS", "*")
@@ -61,8 +74,23 @@ func Load() (*Config, error) {
 	if cfg.FolderID == "" {
 		return nil, errors.New("GOOGLE_DRIVE_FOLDER_ID is required")
 	}
-	if cfg.CredentialsFile == "" {
-		return nil, errors.New("GOOGLE_SERVICE_ACCOUNT_JSON_PATH is required")
+	switch cfg.DriveAuthMode {
+	case DriveAuthModeServiceAccount:
+		if cfg.CredentialsFile == "" {
+			return nil, errors.New("GOOGLE_SERVICE_ACCOUNT_JSON_PATH is required")
+		}
+	case DriveAuthModeOAuth:
+		if cfg.OAuthClientID == "" {
+			return nil, errors.New("GOOGLE_OAUTH_CLIENT_ID is required")
+		}
+		if cfg.OAuthClientSecret == "" {
+			return nil, errors.New("GOOGLE_OAUTH_CLIENT_SECRET is required")
+		}
+		if cfg.OAuthRefreshToken == "" {
+			return nil, errors.New("GOOGLE_OAUTH_REFRESH_TOKEN is required")
+		}
+	default:
+		return nil, fmt.Errorf("GOOGLE_DRIVE_AUTH_MODE must be %q or %q", DriveAuthModeServiceAccount, DriveAuthModeOAuth)
 	}
 	return cfg, nil
 }
