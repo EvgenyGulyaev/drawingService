@@ -50,7 +50,7 @@ func (s *DrawingService) Get(id string) (model.DrawingImage, error) {
 }
 
 func (s *DrawingService) Download(ctx context.Context, id string) (io.ReadCloser, string, error) {
-	image, err := s.repo.Find(id)
+	image, err := s.repo.FindWithDriveID(id)
 	if err != nil {
 		return nil, "", err
 	}
@@ -95,6 +95,8 @@ func (s *DrawingService) Create(ctx context.Context, in CreateInput) (model.Draw
 		}
 		return model.DrawingImage{}, err
 	}
+	// Return the image with DriveFileID set so callers can use it directly.
+	image.DriveFileID = fileID
 	return image, nil
 }
 
@@ -108,7 +110,7 @@ type UpdateInput struct {
 }
 
 func (s *DrawingService) Update(ctx context.Context, id string, in UpdateInput) (model.DrawingImage, error) {
-	existing, err := s.repo.Find(id)
+	existing, err := s.repo.FindWithDriveID(id)
 	if err != nil {
 		return model.DrawingImage{}, err
 	}
@@ -136,7 +138,7 @@ func (s *DrawingService) Update(ctx context.Context, id string, in UpdateInput) 
 }
 
 func (s *DrawingService) Delete(ctx context.Context, id string) error {
-	existing, err := s.repo.Find(id)
+	existing, err := s.repo.FindWithDriveID(id)
 	if err != nil {
 		return err
 	}

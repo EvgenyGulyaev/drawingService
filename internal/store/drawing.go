@@ -10,7 +10,10 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-var DrawingImagesBucket = []byte("DrawingImages")
+var (
+	DrawingImagesBucket  = []byte("DrawingImages")
+	DrawingDriveIDsBucket = []byte("DrawingDriveIDs")
+)
 
 var ErrNotFound = errors.New("drawing image not found")
 
@@ -23,7 +26,10 @@ func NewDrawingRepository(db *Db) *DrawingRepository {
 }
 
 func (r *DrawingRepository) EnsureBuckets() error {
-	return r.db.EnsureBucket(DrawingImagesBucket)
+	if err := r.db.EnsureBucket(DrawingImagesBucket); err != nil {
+		return err
+	}
+	return r.db.EnsureBucket(DrawingDriveIDsBucket)
 }
 
 func (r *DrawingRepository) Create(input model.DrawingImageInput, driveFileID string, size int64, mimeType string, actor string) (model.DrawingImage, error) {
@@ -44,7 +50,6 @@ func (r *DrawingRepository) Create(input model.DrawingImageInput, driveFileID st
 	now := time.Now().UTC()
 	image := model.DrawingImage{
 		Title:       title,
-		DriveFileID: driveFileID,
 		MimeType:    mimeType,
 		Size:        size,
 		Width:       input.Width,
@@ -56,11 +61,12 @@ func (r *DrawingRepository) Create(input model.DrawingImageInput, driveFileID st
 	}
 
 	err = r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(DrawingImagesBucket)
-		if b == nil {
-			return fmt.Errorf("drawing images bucket not found")
+		images := tx.Bucket(DrawingImagesBucket)
+		drive := tx.Bucket(DrawingDriveIDsBucket)
+		if images == nil || drive == nil {
+			return fmt.Errorf("drawing buckets not found")
 		}
-		seq, err := b.NextSequence()
+		seq, err := images.NextSequence()
 		if err != nil {
 			return err
 		}
@@ -69,7 +75,10 @@ func (r *DrawingRepository) Create(input model.DrawingImageInput, driveFileID st
 		if err != nil {
 			return err
 		}
-		return b.Put([]byte(image.ID), data)
+		if err := images.Put([]byte(image.ID), data); err != nil {
+			return err
+		}
+		return drive.Put([]byte(image.ID), []byte(driveFileID))
 	})
 	if err != nil {
 		return model.DrawingImage{}, err
@@ -122,6 +131,48 @@ func (r *DrawingRepository) Find(id string) (model.DrawingImage, error) {
 	return item, nil
 }
 
+func (r *DrawingRepository) driveFileID(tx *bolt.Tx, id string) (string, error) {
+	b := tx.Bucket(DrawingDriveIDsBucket)
+	if b == nil {
+		return "", fmt.Errorf("drawing drive ids bucket not found")
+	}
+	raw := b.Get([]byte(id))
+	if raw == nil {
+		return "", ErrNotFound
+	}
+	return string(raw), nil
+}
+
+func (r *DrawingRepository) FindWithDriveID(id string) (model.DrawingImage, error) {
+	if id == "" {
+		return model.DrawingImage{}, ErrNotFound
+	}
+	var item model.DrawingImage
+	err := r.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(DrawingImagesBucket)
+		if b == nil {
+			return fmt.Errorf("drawing images bucket not found")
+		}
+		raw := b.Get([]byte(id))
+		if raw == nil {
+			return ErrNotFound
+		}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return err
+		}
+		driveID, err := r.driveFileID(tx, id)
+		if err != nil {
+			return err
+		}
+		item.DriveFileID = driveID
+		return nil
+	})
+	if err != nil {
+		return model.DrawingImage{}, err
+	}
+	return item, nil
+}
+
 func (r *DrawingRepository) Update(id string, input model.DrawingImageInput, size int64, mimeType string, actor string) (model.DrawingImage, error) {
 	title, err := model.NormalizeTitle(input.Title)
 	if err != nil {
@@ -136,13 +187,16 @@ func (r *DrawingRepository) Update(id string, input model.DrawingImageInput, siz
 
 	var updated model.DrawingImage
 	err = r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(DrawingImagesBucket)
-		if b == nil {
+		images := tx.Bucket(DrawingImagesBucket)
+		if images == nil {
 			return fmt.Errorf("drawing images bucket not found")
 		}
-		raw := b.Get([]byte(id))
+		raw := images.Get([]byte(id))
 		if raw == nil {
 			return ErrNotFound
+		}
+		if _, err := r.driveFileID(tx, id); err != nil {
+			return err
 		}
 		if err := json.Unmarshal(raw, &updated); err != nil {
 			return err
@@ -162,7 +216,7 @@ func (r *DrawingRepository) Update(id string, input model.DrawingImageInput, siz
 		if err != nil {
 			return err
 		}
-		return b.Put([]byte(id), data)
+		return images.Put([]byte(id), data)
 	})
 	if err != nil {
 		return model.DrawingImage{}, err
@@ -173,18 +227,22 @@ func (r *DrawingRepository) Update(id string, input model.DrawingImageInput, siz
 func (r *DrawingRepository) Delete(id string) (model.DrawingImage, error) {
 	var removed model.DrawingImage
 	err := r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(DrawingImagesBucket)
-		if b == nil {
-			return fmt.Errorf("drawing images bucket not found")
+		images := tx.Bucket(DrawingImagesBucket)
+		drive := tx.Bucket(DrawingDriveIDsBucket)
+		if images == nil || drive == nil {
+			return fmt.Errorf("drawing buckets not found")
 		}
-		raw := b.Get([]byte(id))
+		raw := images.Get([]byte(id))
 		if raw == nil {
 			return ErrNotFound
 		}
 		if err := json.Unmarshal(raw, &removed); err != nil {
 			return err
 		}
-		return b.Delete([]byte(id))
+		if err := images.Delete([]byte(id)); err != nil {
+			return err
+		}
+		return drive.Delete([]byte(id))
 	})
 	if err != nil {
 		return model.DrawingImage{}, err

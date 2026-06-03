@@ -308,3 +308,28 @@ func doMultipartRequestOversize(t *testing.T, baseURL, path, token, email, login
 	data, _ := io.ReadAll(resp.Body)
 	return resp, data, err
 }
+
+func TestListImagesDoesNotLeakDriveFileID(t *testing.T) {
+	env := newTestEnv(t, "*", 0)
+	body, ct := buildMultipartWithType(t, "secret", "image/png", "test.png", []byte("PNGDATA"))
+	resp, data := env.doRequest(t, nethttp.MethodPost, "/internal/drawing/images", testServiceToken, "u@e.com", "u", body, ct)
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("create: %d: %s", resp.StatusCode, string(data))
+	}
+	var created model.DrawingImage
+	json.Unmarshal(data, &created)
+	resp, data = env.doRequest(t, nethttp.MethodGet, "/internal/drawing/images", testServiceToken, "u@e.com", "u", nil, "")
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("list: %d", resp.StatusCode)
+	}
+	if bytes.Contains(data, []byte("drive_file_id")) {
+		t.Fatalf("list response leaks drive_file_id: %s", string(data))
+	}
+	resp, data = env.doRequest(t, nethttp.MethodGet, "/internal/drawing/images/"+created.ID, testServiceToken, "u@e.com", "u", nil, "")
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("get: %d", resp.StatusCode)
+	}
+	if bytes.Contains(data, []byte("drive_file_id")) {
+		t.Fatalf("get response leaks drive_file_id: %s", string(data))
+	}
+}

@@ -19,7 +19,7 @@ var (
 type DrawingImage struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
-	DriveFileID string    `json:"drive_file_id,omitempty"`
+	DriveFileID string    `json:"-"`
 	MimeType    string    `json:"mime_type"`
 	Size        int64     `json:"size"`
 	Width       int       `json:"width"`
