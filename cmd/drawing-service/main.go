@@ -41,8 +41,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("init drive storage: %v", err)
 	}
+	stampDrive, err := google.NewDriveStorage(context.Background(), google.DriveOptions{
+		FolderID:          cfg.StampsFolderID,
+		CredentialsFile:   cfg.CredentialsFile,
+		OAuthClientID:     cfg.OAuthClientID,
+		OAuthClientSecret: cfg.OAuthClientSecret,
+		OAuthRefreshToken: cfg.OAuthRefreshToken,
+	})
+	if err != nil {
+		log.Fatalf("init stamp drive storage: %v", err)
+	}
 
-	svc := service.NewDrawingService(repo, drive, cfg.MaxImageBytes)
+	svc := service.NewDrawingService(repo, drive, cfg.MaxImageBytes).
+		WithStampStorage(stampDrive).
+		WithStampLimits(cfg.MaxStampImageBytes, cfg.MaxStampImageDimension)
 	auth := httpserver.AuthConfig{
 		ServiceToken: cfg.ServiceToken,
 		AllowedUsers: cfg.AllowedUsers,

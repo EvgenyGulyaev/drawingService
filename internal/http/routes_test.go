@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"net"
@@ -141,6 +144,44 @@ func buildMultipartWithType(t *testing.T, title, contentType, filename string, f
 	return &buf, mw.FormDataContentType()
 }
 
+func buildStampMultipart(t *testing.T, meta map[string]any, contentType, filename string, fileContent []byte) (io.Reader, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	if err := mw.WriteField("metadata", mustJSON(t, meta)); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	if fileContent != nil {
+		hdr := make(textproto.MIMEHeader)
+		hdr.Set("Content-Disposition", `form-data; name="file"; filename="`+filename+`"`)
+		hdr.Set("Content-Type", contentType)
+		fw, err := mw.CreatePart(hdr)
+		if err != nil {
+			t.Fatalf("create part: %v", err)
+		}
+		if _, err := fw.Write(fileContent); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+	}
+	mw.Close()
+	return &buf, mw.FormDataContentType()
+}
+
+func tinyPNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 10, 6))
+	for y := 0; y < 6; y++ {
+		for x := 0; x < 10; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 10, B: 20, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	return buf.Bytes()
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	data, err := json.Marshal(v)
@@ -148,6 +189,71 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatalf("marshal: %v", err)
 	}
 	return string(data)
+}
+
+func TestStampRoutesCreateListContentUpdateDelete(t *testing.T) {
+	env := newTestEnv(t, "*", 0)
+
+	body, ct := buildStampMultipart(t, map[string]any{
+		"name":      "  Евгений  ",
+		"textValue": "  Evgeny  ",
+		"priority":  "text",
+	}, "", "", nil)
+	resp, data := env.doRequest(t, nethttp.MethodPost, "/internal/drawing/stamps", testServiceToken, "user@example.com", "user", body, ct)
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("expected 200 create text stamp, got %d: %s", resp.StatusCode, string(data))
+	}
+	var created model.DrawingStamp
+	if err := json.Unmarshal(data, &created); err != nil {
+		t.Fatalf("decode stamp: %v", err)
+	}
+	if created.Name != "Евгений" || created.TextValue != "Evgeny" || created.HasImage {
+		t.Fatalf("unexpected created stamp: %#v", created)
+	}
+
+	resp, data = env.doRequest(t, nethttp.MethodGet, "/internal/drawing/stamps", testServiceToken, "user@example.com", "user", nil, "")
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("expected 200 list stamps, got %d: %s", resp.StatusCode, string(data))
+	}
+	var listResp struct {
+		Items []model.DrawingStamp `json:"items"`
+	}
+	if err := json.Unmarshal(data, &listResp); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(listResp.Items) != 1 {
+		t.Fatalf("expected one stamp, got %d", len(listResp.Items))
+	}
+
+	body, ct = buildStampMultipart(t, map[string]any{
+		"name":      "Печать",
+		"textValue": "Seal",
+		"priority":  "image",
+	}, "image/png", "seal.png", tinyPNG(t))
+	resp, data = env.doRequest(t, nethttp.MethodPut, "/internal/drawing/stamps/"+created.ID, testServiceToken, "user@example.com", "user", body, ct)
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("expected 200 update image stamp, got %d: %s", resp.StatusCode, string(data))
+	}
+	var updated model.DrawingStamp
+	if err := json.Unmarshal(data, &updated); err != nil {
+		t.Fatalf("decode updated: %v", err)
+	}
+	if !updated.HasImage || updated.Priority != model.StampPriorityImage {
+		t.Fatalf("expected image priority stamp, got %#v", updated)
+	}
+
+	resp, data = env.doRequest(t, nethttp.MethodGet, "/internal/drawing/stamps/"+created.ID+"/content", testServiceToken, "user@example.com", "user", nil, "")
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("expected 200 stamp content, got %d: %s", resp.StatusCode, string(data))
+	}
+	if resp.Header.Get("Content-Type") != model.DefaultMimeType {
+		t.Fatalf("expected png content type, got %q", resp.Header.Get("Content-Type"))
+	}
+
+	resp, _ = env.doRequest(t, nethttp.MethodDelete, "/internal/drawing/stamps/"+created.ID, testServiceToken, "user@example.com", "user", nil, "")
+	if resp.StatusCode != nethttp.StatusNoContent {
+		t.Fatalf("expected 204 delete stamp, got %d", resp.StatusCode)
+	}
 }
 
 func TestRejectsRequestsWithoutServiceToken(t *testing.T) {

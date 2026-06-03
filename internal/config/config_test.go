@@ -8,6 +8,7 @@ func TestLoadAllowsOAuthDriveAuthWithoutServiceAccountFile(t *testing.T) {
 	t.Setenv("DRAWING_DB_PATH", "./drawing.db")
 	t.Setenv("DRAWING_SERVICE_TOKEN", "service-token")
 	t.Setenv("GOOGLE_DRIVE_FOLDER_ID", "folder-id")
+	t.Setenv("GOOGLE_DRIVE_STAMPS_FOLDER_ID", "stamps-folder-id")
 	t.Setenv("GOOGLE_DRIVE_AUTH_MODE", "oauth")
 	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client-id")
 	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
@@ -30,6 +31,9 @@ func TestLoadAllowsOAuthDriveAuthWithoutServiceAccountFile(t *testing.T) {
 	if cfg.OAuthRefreshToken != "refresh-token" {
 		t.Fatalf("expected oauth refresh token")
 	}
+	if cfg.StampsFolderID != "stamps-folder-id" {
+		t.Fatalf("expected stamps folder id")
+	}
 	if cfg.CredentialsFile != "" {
 		t.Fatalf("oauth auth should not require service account file, got %q", cfg.CredentialsFile)
 	}
@@ -38,11 +42,25 @@ func TestLoadAllowsOAuthDriveAuthWithoutServiceAccountFile(t *testing.T) {
 func TestLoadRejectsOAuthDriveAuthWithoutRefreshToken(t *testing.T) {
 	t.Setenv("DRAWING_SERVICE_TOKEN", "service-token")
 	t.Setenv("GOOGLE_DRIVE_FOLDER_ID", "folder-id")
+	t.Setenv("GOOGLE_DRIVE_STAMPS_FOLDER_ID", "stamps-folder-id")
 	t.Setenv("GOOGLE_DRIVE_AUTH_MODE", "oauth")
 	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client-id")
 	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
 
 	if _, err := Load(); err == nil {
 		t.Fatalf("expected missing refresh token error")
+	}
+}
+
+func TestLoadRejectsMissingStampFolder(t *testing.T) {
+	t.Setenv("DRAWING_SERVICE_TOKEN", "service-token")
+	t.Setenv("GOOGLE_DRIVE_FOLDER_ID", "folder-id")
+	t.Setenv("GOOGLE_DRIVE_AUTH_MODE", "oauth")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client-id")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
+	t.Setenv("GOOGLE_OAUTH_REFRESH_TOKEN", "refresh-token")
+
+	if _, err := Load(); err == nil {
+		t.Fatalf("expected missing stamp folder error")
 	}
 }

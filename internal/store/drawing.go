@@ -29,7 +29,10 @@ func (r *DrawingRepository) EnsureBuckets() error {
 	if err := r.db.EnsureBucket(DrawingImagesBucket); err != nil {
 		return err
 	}
-	return r.db.EnsureBucket(DrawingDriveIDsBucket)
+	if err := r.db.EnsureBucket(DrawingDriveIDsBucket); err != nil {
+		return err
+	}
+	return r.ensureStampBuckets()
 }
 
 func (r *DrawingRepository) Create(input model.DrawingImageInput, driveFileID string, size int64, mimeType string, actor string) (model.DrawingImage, error) {

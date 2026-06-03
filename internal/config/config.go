@@ -12,19 +12,22 @@ import (
 )
 
 type Config struct {
-	Port              string
-	Host              string
-	DBPath            string
-	ServiceToken      string
-	FolderID          string
-	DriveAuthMode     string
-	CredentialsFile   string
-	OAuthClientID     string
-	OAuthClientSecret string
-	OAuthRefreshToken string
-	AllowedUsers      []string
-	AllowAnyUser      bool
-	MaxImageBytes     int64
+	Port                   string
+	Host                   string
+	DBPath                 string
+	ServiceToken           string
+	FolderID               string
+	StampsFolderID         string
+	DriveAuthMode          string
+	CredentialsFile        string
+	OAuthClientID          string
+	OAuthClientSecret      string
+	OAuthRefreshToken      string
+	AllowedUsers           []string
+	AllowAnyUser           bool
+	MaxImageBytes          int64
+	MaxStampImageBytes     int64
+	MaxStampImageDimension int
 }
 
 const (
@@ -43,6 +46,7 @@ func Load() (*Config, error) {
 		DBPath:            getenv("DRAWING_DB_PATH", "./drawing.db"),
 		ServiceToken:      os.Getenv("DRAWING_SERVICE_TOKEN"),
 		FolderID:          os.Getenv("GOOGLE_DRIVE_FOLDER_ID"),
+		StampsFolderID:    os.Getenv("GOOGLE_DRIVE_STAMPS_FOLDER_ID"),
 		DriveAuthMode:     strings.ToLower(getenv("GOOGLE_DRIVE_AUTH_MODE", DriveAuthModeServiceAccount)),
 		CredentialsFile:   os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON_PATH"),
 		OAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
@@ -67,12 +71,25 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("MAX_IMAGE_BYTES must be a positive integer")
 	}
 	cfg.MaxImageBytes = maxBytes
+	maxStampBytes, err := strconv.ParseInt(getenv("MAX_STAMP_IMAGE_BYTES", "5242880"), 10, 64)
+	if err != nil || maxStampBytes <= 0 {
+		return nil, fmt.Errorf("MAX_STAMP_IMAGE_BYTES must be a positive integer")
+	}
+	cfg.MaxStampImageBytes = maxStampBytes
+	maxStampDim, err := strconv.Atoi(getenv("MAX_STAMP_IMAGE_DIMENSION", "512"))
+	if err != nil || maxStampDim <= 0 {
+		return nil, fmt.Errorf("MAX_STAMP_IMAGE_DIMENSION must be a positive integer")
+	}
+	cfg.MaxStampImageDimension = maxStampDim
 
 	if cfg.ServiceToken == "" {
 		return nil, errors.New("DRAWING_SERVICE_TOKEN is required")
 	}
 	if cfg.FolderID == "" {
 		return nil, errors.New("GOOGLE_DRIVE_FOLDER_ID is required")
+	}
+	if cfg.StampsFolderID == "" {
+		return nil, errors.New("GOOGLE_DRIVE_STAMPS_FOLDER_ID is required")
 	}
 	switch cfg.DriveAuthMode {
 	case DriveAuthModeServiceAccount:

@@ -64,10 +64,16 @@ func (h *Handler) handleGet(ctx *silverlining.Context, path string) {
 		switch {
 		case path == "/internal/drawing/images":
 			h.listImages(c)
+		case path == "/internal/drawing/stamps":
+			h.listStamps(c)
 		case len(parts) == 5 && parts[0] == "internal" && parts[1] == "drawing" && parts[2] == "images" && parts[4] == "content":
 			h.downloadImage(c, parts[3])
+		case len(parts) == 5 && parts[0] == "internal" && parts[1] == "drawing" && parts[2] == "stamps" && parts[4] == "content":
+			h.downloadStampImage(c, parts[3])
 		case len(parts) == 4 && parts[0] == "internal" && parts[1] == "drawing" && parts[2] == "images":
 			h.getImage(c, parts[3])
+		case len(parts) == 4 && parts[0] == "internal" && parts[1] == "drawing" && parts[2] == "stamps":
+			h.getStamp(c, parts[3])
 		default:
 			httperror.Write(c, http.StatusNotFound, "not found")
 		}
@@ -78,6 +84,10 @@ func (h *Handler) handlePost(ctx *silverlining.Context, path string) {
 	RequireServiceToken(h.auth)(func(c *silverlining.Context) {
 		if path == "/internal/drawing/images" {
 			h.createImage(c)
+			return
+		}
+		if path == "/internal/drawing/stamps" {
+			h.createStamp(c)
 			return
 		}
 		httperror.Write(c, http.StatusNotFound, "not found")
@@ -91,6 +101,10 @@ func (h *Handler) handlePut(ctx *silverlining.Context, path string) {
 			h.updateImage(c, parts[3])
 			return
 		}
+		if len(parts) == 4 && parts[0] == "internal" && parts[1] == "drawing" && parts[2] == "stamps" {
+			h.updateStamp(c, parts[3])
+			return
+		}
 		httperror.Write(c, http.StatusNotFound, "not found")
 	})(ctx)
 }
@@ -100,6 +114,10 @@ func (h *Handler) handleDelete(ctx *silverlining.Context, path string) {
 		parts := splitPath(path)
 		if len(parts) == 4 && parts[0] == "internal" && parts[1] == "drawing" && parts[2] == "images" {
 			h.deleteImage(c, parts[3])
+			return
+		}
+		if len(parts) == 4 && parts[0] == "internal" && parts[1] == "drawing" && parts[2] == "stamps" {
+			h.deleteStamp(c, parts[3])
 			return
 		}
 		httperror.Write(c, http.StatusNotFound, "not found")
@@ -156,6 +174,66 @@ func (h *Handler) getImage(ctx *silverlining.Context, id string) {
 		return
 	}
 	ctx.WriteJSON(http.StatusOK, image)
+}
+
+func (h *Handler) listStamps(ctx *silverlining.Context) {
+	caller, err := ReadCaller(ctx)
+	if err != nil {
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.auth.IsAllowed(caller) {
+		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
+		return
+	}
+	items, err := h.service.ListStamps()
+	if err != nil {
+		httperror.Write(ctx, http.StatusInternalServerError, err.Error())
+		return
+	}
+	ctx.WriteJSON(http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) getStamp(ctx *silverlining.Context, id string) {
+	caller, err := ReadCaller(ctx)
+	if err != nil {
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.auth.IsAllowed(caller) {
+		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
+		return
+	}
+	stamp, err := h.service.GetStamp(id)
+	if err != nil {
+		writeServiceError(ctx, err)
+		return
+	}
+	ctx.WriteJSON(http.StatusOK, stamp)
+}
+
+func (h *Handler) downloadStampImage(ctx *silverlining.Context, id string) {
+	caller, err := ReadCaller(ctx)
+	if err != nil {
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.auth.IsAllowed(caller) {
+		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
+		return
+	}
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	reader, mimeType, err := h.service.DownloadStampImage(hctx, id)
+	if err != nil {
+		writeServiceError(ctx, err)
+		return
+	}
+	defer reader.Close()
+	ctx.ResponseHeaders().Set("Content-Type", mimeType)
+	if err := ctx.WriteStream(http.StatusOK, reader); err != nil {
+		_ = err
+	}
 }
 
 func (h *Handler) downloadImage(ctx *silverlining.Context, id string) {
@@ -264,6 +342,88 @@ func (h *Handler) deleteImage(ctx *silverlining.Context, id string) {
 	ctx.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) createStamp(ctx *silverlining.Context) {
+	caller, err := ReadCaller(ctx)
+	if err != nil {
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.auth.IsAllowed(caller) {
+		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
+		return
+	}
+	input, file, filename, mimeType, err := readMultipartStamp(ctx, h.service.MaxStampBytes())
+	if err != nil {
+		writeMultipartError(ctx, err)
+		return
+	}
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	stamp, err := h.service.CreateStamp(hctx, service.StampInput{
+		Input:    input.Input,
+		Filename: filename,
+		MimeType: mimeType,
+		Body:     file,
+		Actor:    actorLabel(caller),
+	})
+	if err != nil {
+		writeServiceError(ctx, err)
+		return
+	}
+	ctx.WriteJSON(http.StatusOK, stamp)
+}
+
+func (h *Handler) updateStamp(ctx *silverlining.Context, id string) {
+	caller, err := ReadCaller(ctx)
+	if err != nil {
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.auth.IsAllowed(caller) {
+		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
+		return
+	}
+	input, file, filename, mimeType, err := readMultipartStamp(ctx, h.service.MaxStampBytes())
+	if err != nil {
+		writeMultipartError(ctx, err)
+		return
+	}
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	stamp, err := h.service.UpdateStamp(hctx, id, service.StampInput{
+		Input:       input.Input,
+		Filename:    filename,
+		MimeType:    mimeType,
+		Body:        file,
+		RemoveImage: input.RemoveImage,
+		Actor:       actorLabel(caller),
+	})
+	if err != nil {
+		writeServiceError(ctx, err)
+		return
+	}
+	ctx.WriteJSON(http.StatusOK, stamp)
+}
+
+func (h *Handler) deleteStamp(ctx *silverlining.Context, id string) {
+	caller, err := ReadCaller(ctx)
+	if err != nil {
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !h.auth.IsAllowed(caller) {
+		httperror.Write(ctx, http.StatusForbidden, "user not allowed")
+		return
+	}
+	hctx, hcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer hcancel()
+	if err := h.service.DeleteStamp(hctx, id); err != nil {
+		writeServiceError(ctx, err)
+		return
+	}
+	ctx.WriteHeader(http.StatusNoContent)
+}
+
 func readMultipartDrawing(ctx *silverlining.Context, maxFileBytes int64) (model.DrawingImageInput, io.Reader, string, string, error) {
 	reader, err := ctx.MultipartReader()
 	if err != nil {
@@ -319,6 +479,80 @@ func readMultipartDrawing(ctx *silverlining.Context, maxFileBytes int64) (model.
 	return meta, bytes.NewReader(fileBytes), filename, mimeType, nil
 }
 
+type stampMultipartInput struct {
+	Input       model.DrawingStampInput
+	RemoveImage bool
+}
+
+func readMultipartStamp(ctx *silverlining.Context, maxFileBytes int64) (stampMultipartInput, io.Reader, string, string, error) {
+	reader, err := ctx.MultipartReader()
+	if err != nil {
+		return stampMultipartInput{}, nil, "", "", errors.New("expected multipart/form-data")
+	}
+	var meta struct {
+		Name        string `json:"name"`
+		TextValue   string `json:"textValue"`
+		Priority    string `json:"priority"`
+		RemoveImage bool   `json:"removeImage"`
+	}
+	var fileBytes []byte
+	var filename string
+	var mimeType string
+
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return stampMultipartInput{}, nil, "", "", fmt.Errorf("read multipart: %w", err)
+		}
+		name := part.FormName()
+		switch name {
+		case "metadata":
+			data, err := io.ReadAll(io.LimitReader(part, maxMetadataSize+1))
+			if err != nil {
+				return stampMultipartInput{}, nil, "", "", err
+			}
+			if len(data) > maxMetadataSize {
+				return stampMultipartInput{}, nil, "", "", errors.New("metadata too large")
+			}
+			if err := json.Unmarshal(data, &meta); err != nil {
+				return stampMultipartInput{}, nil, "", "", fmt.Errorf("metadata: %w", err)
+			}
+		case "file":
+			mimeType = strings.ToLower(strings.TrimSpace(part.Header.Get("Content-Type")))
+			if mimeType == "" || mimeType == "application/octet-stream" {
+				mimeType = model.DefaultMimeType
+			}
+			filename = part.FileName()
+			fileBytes, err = io.ReadAll(io.LimitReader(part, maxFileBytes+1))
+			if err != nil {
+				return stampMultipartInput{}, nil, "", "", err
+			}
+			if int64(len(fileBytes)) > maxFileBytes {
+				drainRemainingParts(reader)
+				return stampMultipartInput{}, nil, "", "", service.ErrPayloadTooLarge
+			}
+		default:
+			part.Close()
+		}
+	}
+	input := stampMultipartInput{
+		Input: model.DrawingStampInput{
+			Name:      meta.Name,
+			TextValue: meta.TextValue,
+			Priority:  meta.Priority,
+		},
+		RemoveImage: meta.RemoveImage,
+	}
+	var body io.Reader
+	if fileBytes != nil {
+		body = bytes.NewReader(fileBytes)
+	}
+	return input, body, filename, mimeType, nil
+}
+
 const maxMetadataSize = 128 * 1024
 
 func drainRemainingParts(r *multipart.Reader) {
@@ -342,10 +576,22 @@ func writeServiceError(ctx *silverlining.Context, err error) {
 		httperror.Write(ctx, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrUnsupportedMime):
 		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrUnsupportedStampMime):
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrEmptyPayload):
 		httperror.Write(ctx, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrPayloadTooLarge):
 		httperror.Write(ctx, http.StatusRequestEntityTooLarge, err.Error())
+	case errors.Is(err, model.ErrStampNameRequired):
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+	case errors.Is(err, model.ErrStampNameTooLong):
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+	case errors.Is(err, model.ErrStampTextTooLong):
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+	case errors.Is(err, model.ErrStampContentRequired):
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
+	case errors.Is(err, model.ErrStampPriorityInvalid):
+		httperror.Write(ctx, http.StatusBadRequest, err.Error())
 	default:
 		httperror.Write(ctx, http.StatusInternalServerError, err.Error())
 	}

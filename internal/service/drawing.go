@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,6 +17,8 @@ import (
 	"drawingService/internal/google"
 	"drawingService/internal/model"
 	"drawingService/internal/store"
+
+	_ "image/jpeg"
 )
 
 var (
@@ -22,10 +27,15 @@ var (
 	ErrPayloadTooLarge = errors.New("file is too large")
 )
 
+var ErrUnsupportedStampMime = errors.New("only image/png and image/jpeg are allowed for stamp images")
+
 type DrawingService struct {
 	repo          *store.DrawingRepository
 	storage       google.Storage
+	stampStorage  google.Storage
 	maxImageBytes int64
+	maxStampBytes int64
+	maxStampDim   int
 	driveTimeout  time.Duration
 }
 
@@ -36,9 +46,29 @@ func NewDrawingService(repo *store.DrawingRepository, storage google.Storage, ma
 	return &DrawingService{
 		repo:          repo,
 		storage:       storage,
+		stampStorage:  storage,
 		maxImageBytes: maxImageBytes,
+		maxStampBytes: 5 * 1024 * 1024,
+		maxStampDim:   512,
 		driveTimeout:  60 * time.Second,
 	}
+}
+
+func (s *DrawingService) WithStampStorage(storage google.Storage) *DrawingService {
+	if storage != nil {
+		s.stampStorage = storage
+	}
+	return s
+}
+
+func (s *DrawingService) WithStampLimits(maxBytes int64, maxDim int) *DrawingService {
+	if maxBytes > 0 {
+		s.maxStampBytes = maxBytes
+	}
+	if maxDim > 0 {
+		s.maxStampDim = maxDim
+	}
+	return s
 }
 
 func (s *DrawingService) List(ctx context.Context) ([]model.DrawingImage, error) {
@@ -69,6 +99,10 @@ func (s *DrawingService) List(ctx context.Context) ([]model.DrawingImage, error)
 
 func (s *DrawingService) MaxFileBytes() int64 {
 	return s.maxImageBytes
+}
+
+func (s *DrawingService) MaxStampBytes() int64 {
+	return s.maxStampBytes
 }
 
 func (s *DrawingService) Get(id string) (model.DrawingImage, error) {
@@ -192,6 +226,211 @@ func (s *DrawingService) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	return nil
+}
+
+type StampInput struct {
+	Input       model.DrawingStampInput
+	Filename    string
+	MimeType    string
+	Body        io.Reader
+	RemoveImage bool
+	Actor       string
+}
+
+func (s *DrawingService) ListStamps() ([]model.DrawingStamp, error) {
+	return s.repo.ListStamps()
+}
+
+func (s *DrawingService) GetStamp(id string) (model.DrawingStamp, error) {
+	return s.repo.FindStamp(id)
+}
+
+func (s *DrawingService) CreateStamp(ctx context.Context, in StampInput) (model.DrawingStamp, error) {
+	var fileID string
+	var size int64
+	var width int
+	var height int
+	if in.Body != nil {
+		processed, err := s.processStampImage(in.Body, in.MimeType)
+		if err != nil {
+			return model.DrawingStamp{}, err
+		}
+		driveName := buildDriveName(in.Filename, in.Input.Name)
+		driveCtx, driveCancel := s.driveContext(ctx)
+		defer driveCancel()
+		fileID, err = s.stampStorage.UploadPNG(driveCtx, driveName, bytes.NewReader(processed.data), int64(len(processed.data)))
+		if err != nil {
+			return model.DrawingStamp{}, fmt.Errorf("upload stamp png: %w", err)
+		}
+		size = int64(len(processed.data))
+		width = processed.width
+		height = processed.height
+	}
+	stamp, err := s.repo.CreateStamp(in.Input, fileID, size, model.DefaultMimeType, width, height, in.Actor)
+	if err != nil {
+		if fileID != "" {
+			driveCtx, driveCancel := s.driveContext(ctx)
+			defer driveCancel()
+			if cleanupErr := s.stampStorage.Delete(driveCtx, fileID); cleanupErr != nil {
+				log.Printf("drawing service: failed to cleanup stamp drive file %q after repo create error: %v", fileID, cleanupErr)
+			}
+		}
+		return model.DrawingStamp{}, err
+	}
+	return stamp, nil
+}
+
+func (s *DrawingService) UpdateStamp(ctx context.Context, id string, in StampInput) (model.DrawingStamp, error) {
+	existing, err := s.repo.FindStampWithDriveID(id)
+	if err != nil {
+		return model.DrawingStamp{}, err
+	}
+	var fileID string
+	var size int64
+	var width int
+	var height int
+	if in.Body != nil {
+		processed, err := s.processStampImage(in.Body, in.MimeType)
+		if err != nil {
+			return model.DrawingStamp{}, err
+		}
+		driveName := buildDriveName(in.Filename, in.Input.Name)
+		driveCtx, driveCancel := s.driveContext(ctx)
+		defer driveCancel()
+		fileID, err = s.stampStorage.UploadPNG(driveCtx, driveName, bytes.NewReader(processed.data), int64(len(processed.data)))
+		if err != nil {
+			return model.DrawingStamp{}, fmt.Errorf("upload stamp png: %w", err)
+		}
+		size = int64(len(processed.data))
+		width = processed.width
+		height = processed.height
+	}
+	updated, err := s.repo.UpdateStamp(id, in.Input, fileID, size, model.DefaultMimeType, width, height, in.RemoveImage, in.Actor)
+	if err != nil {
+		if fileID != "" {
+			driveCtx, driveCancel := s.driveContext(ctx)
+			defer driveCancel()
+			if cleanupErr := s.stampStorage.Delete(driveCtx, fileID); cleanupErr != nil {
+				log.Printf("drawing service: failed to cleanup stamp drive file %q after repo update error: %v", fileID, cleanupErr)
+			}
+		}
+		return model.DrawingStamp{}, err
+	}
+	if fileID != "" && existing.ImageDriveFileID != "" {
+		driveCtx, driveCancel := s.driveContext(ctx)
+		defer driveCancel()
+		if err := s.stampStorage.Delete(driveCtx, existing.ImageDriveFileID); err != nil {
+			log.Printf("drawing service: failed to delete old stamp drive file %q: %v", existing.ImageDriveFileID, err)
+		}
+	}
+	if in.RemoveImage && existing.ImageDriveFileID != "" {
+		driveCtx, driveCancel := s.driveContext(ctx)
+		defer driveCancel()
+		if err := s.stampStorage.Delete(driveCtx, existing.ImageDriveFileID); err != nil {
+			log.Printf("drawing service: failed to delete removed stamp drive file %q: %v", existing.ImageDriveFileID, err)
+		}
+	}
+	return updated, nil
+}
+
+func (s *DrawingService) DownloadStampImage(ctx context.Context, id string) (io.ReadCloser, string, error) {
+	stamp, err := s.repo.FindStampWithDriveID(id)
+	if err != nil {
+		return nil, "", err
+	}
+	if !stamp.HasImage || stamp.ImageDriveFileID == "" {
+		return nil, "", store.ErrNotFound
+	}
+	return s.stampStorage.Download(ctx, stamp.ImageDriveFileID)
+}
+
+func (s *DrawingService) DeleteStamp(ctx context.Context, id string) error {
+	existing, err := s.repo.FindStampWithDriveID(id)
+	if err != nil {
+		return err
+	}
+	if existing.ImageDriveFileID != "" {
+		driveCtx, driveCancel := s.driveContext(ctx)
+		defer driveCancel()
+		if err := s.stampStorage.Delete(driveCtx, existing.ImageDriveFileID); err != nil {
+			return fmt.Errorf("stamp storage delete: %w", err)
+		}
+	}
+	_, err = s.repo.DeleteStamp(id)
+	return err
+}
+
+type processedStampImage struct {
+	data   []byte
+	width  int
+	height int
+}
+
+func (s *DrawingService) processStampImage(body io.Reader, mimeType string) (processedStampImage, error) {
+	mime := strings.ToLower(strings.TrimSpace(mimeType))
+	if mime == "" || mime == "application/octet-stream" {
+		mime = model.DefaultMimeType
+	}
+	if mime != model.DefaultMimeType && mime != "image/jpeg" && mime != "image/jpg" {
+		return processedStampImage{}, ErrUnsupportedStampMime
+	}
+	data, err := readAllLimited(body, s.maxStampBytes)
+	if err != nil {
+		return processedStampImage{}, err
+	}
+	if len(data) == 0 {
+		return processedStampImage{}, ErrEmptyPayload
+	}
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return processedStampImage{}, fmt.Errorf("decode stamp image: %w", err)
+	}
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return processedStampImage{}, ErrEmptyPayload
+	}
+	targetW, targetH := fitDimensions(w, h, s.maxStampDim)
+	dst := resizeNearest(src, targetW, targetH)
+	var out bytes.Buffer
+	if err := png.Encode(&out, dst); err != nil {
+		return processedStampImage{}, err
+	}
+	return processedStampImage{data: out.Bytes(), width: targetW, height: targetH}, nil
+}
+
+func resizeNearest(src image.Image, targetW, targetH int) *image.RGBA {
+	srcBounds := src.Bounds()
+	srcW := srcBounds.Dx()
+	srcH := srcBounds.Dy()
+	dst := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
+	for y := 0; y < targetH; y++ {
+		srcY := srcBounds.Min.Y + (y * srcH / targetH)
+		for x := 0; x < targetW; x++ {
+			srcX := srcBounds.Min.X + (x * srcW / targetW)
+			dst.Set(x, y, src.At(srcX, srcY))
+		}
+	}
+	return dst
+}
+
+func fitDimensions(width, height, maxDim int) (int, int) {
+	if maxDim <= 0 {
+		maxDim = 512
+	}
+	if width <= maxDim && height <= maxDim {
+		return width, height
+	}
+	scale := float64(maxDim) / float64(max(width, height))
+	w := int(math.Round(float64(width) * scale))
+	h := int(math.Round(float64(height) * scale))
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	return w, h
 }
 
 func readAllLimited(r io.Reader, limit int64) ([]byte, error) {
