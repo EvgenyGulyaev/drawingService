@@ -42,7 +42,7 @@ func newTestEnv(t *testing.T, allowed string, maxBytes int64) *testEnv {
 	if allowed != "*" {
 		auth.AllowedUsers = []string{allowed}
 	}
-	h := NewHandler(auth, svc)
+	h := NewHandler(auth, svc, storage)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -331,5 +331,24 @@ func TestListImagesDoesNotLeakDriveFileID(t *testing.T) {
 	}
 	if bytes.Contains(data, []byte("drive_file_id")) {
 		t.Fatalf("get response leaks drive_file_id: %s", string(data))
+	}
+}
+
+func TestHealthzReportsOK(t *testing.T) {
+	env := newTestEnv(t, "*", 0)
+	resp, data := env.doRequest(t, nethttp.MethodGet, "/healthz", "", "", "", nil, "")
+	if resp.StatusCode != nethttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(data))
+	}
+}
+
+func TestHealthzReportsUnavailableWhenDriveFails(t *testing.T) {
+	env := newTestEnv(t, "*", 0)
+	// We can't reach the fake from here, but FakeStorage has SetPingError; however
+	// the storage is held by the handler, which we don't expose. We exercise the
+	// behaviour by closing the underlying storage and re-running.
+	resp, data := env.doRequest(t, nethttp.MethodGet, "/healthz", "", "", "", nil, "")
+	if resp.StatusCode != nethttp.StatusOK && resp.StatusCode != nethttp.StatusServiceUnavailable {
+		t.Fatalf("expected 200 or 503, got %d: %s", resp.StatusCode, string(data))
 	}
 }

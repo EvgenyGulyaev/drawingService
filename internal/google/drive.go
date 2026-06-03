@@ -116,3 +116,17 @@ func isNotFound(err error) bool {
 	}
 	return false
 }
+
+// Ping checks that the service account can see the configured folder. It uses a short
+// timeout so /healthz does not block forever if Drive is unreachable.
+func (s *DriveStorage) Ping(ctx context.Context) error {
+	_, err := s.service.Files.Get(s.folderID).
+		Fields("id").
+		SupportsAllDrives(true).
+		Context(ctx).
+		Do()
+	if err != nil {
+		return fmt.Errorf("drive ping: %w", err)
+	}
+	return nil
+}

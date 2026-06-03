@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"drawingService/internal/model"
 	"drawingService/internal/service"
@@ -20,12 +21,17 @@ import (
 )
 
 type Handler struct {
-	auth    AuthConfig
-	service *service.DrawingService
+	auth     AuthConfig
+	service  *service.DrawingService
+	pinger   Pinger
 }
 
-func NewHandler(auth AuthConfig, svc *service.DrawingService) *Handler {
-	return &Handler{auth: auth, service: svc}
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
+func NewHandler(auth AuthConfig, svc *service.DrawingService, pinger Pinger) *Handler {
+	return &Handler{auth: auth, service: svc, pinger: pinger}
 }
 
 func (h *Handler) Serve(ctx *silverlining.Context) {
@@ -49,7 +55,7 @@ func (h *Handler) Serve(ctx *silverlining.Context) {
 func (h *Handler) handleGet(ctx *silverlining.Context, path string) {
 	switch path {
 	case "/healthz":
-		ctx.WriteJSON(http.StatusOK, map[string]string{"status": "ok"})
+		h.handleHealthz(ctx)
 		return
 	}
 	RequireServiceToken(h.auth)(func(c *silverlining.Context) {
@@ -115,6 +121,20 @@ func (h *Handler) listImages(ctx *silverlining.Context) {
 		return
 	}
 	ctx.WriteJSON(http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) handleHealthz(ctx *silverlining.Context) {
+	if h.pinger == nil {
+		ctx.WriteJSON(http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+	pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := h.pinger.Ping(pingCtx); err != nil {
+		httperror.Write(ctx, http.StatusServiceUnavailable, "drive unavailable: "+err.Error())
+		return
+	}
+	ctx.WriteJSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *Handler) getImage(ctx *silverlining.Context, id string) {
