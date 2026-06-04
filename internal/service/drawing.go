@@ -237,7 +237,29 @@ type StampInput struct {
 	Actor       string
 }
 
-func (s *DrawingService) ListStamps() ([]model.DrawingStamp, error) {
+func (s *DrawingService) ListStamps(ctx context.Context) ([]model.DrawingStamp, error) {
+	items, err := s.repo.ListStamps()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]string)
+	cleaned := false
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.Name))
+		if key == "" {
+			continue
+		}
+		keepID, ok := seen[key]
+		if ok {
+			s.cleanupDuplicateStampImages(ctx, item.Name, keepID)
+			cleaned = true
+			continue
+		}
+		seen[key] = item.ID
+	}
+	if !cleaned {
+		return items, nil
+	}
 	return s.repo.ListStamps()
 }
 

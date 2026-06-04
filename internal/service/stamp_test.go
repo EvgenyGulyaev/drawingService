@@ -45,7 +45,7 @@ func TestDrawingServiceStampTextCRUD(t *testing.T) {
 		t.Fatalf("unexpected stamp: %#v", stamp)
 	}
 
-	items, err := svc.ListStamps()
+	items, err := svc.ListStamps(context.Background())
 	if err != nil {
 		t.Fatalf("list stamps: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestDrawingServiceReplacesDuplicateStampName(t *testing.T) {
 		t.Fatalf("create duplicate stamp: %v", err)
 	}
 
-	items, err := svc.ListStamps()
+	items, err := svc.ListStamps(context.Background())
 	if err != nil {
 		t.Fatalf("list stamps: %v", err)
 	}
@@ -147,5 +147,47 @@ func TestDrawingServiceReplacesDuplicateStampName(t *testing.T) {
 	}
 	if !storage.HasFile(second.ImageDriveFileID) {
 		t.Fatalf("expected new stamp image file to remain")
+	}
+}
+
+func TestDrawingServiceListStampsCleansExistingDuplicateNames(t *testing.T) {
+	svc, storage := newTestService(t, 0)
+	firstFileID, err := storage.UploadPNG(context.Background(), "anton-old.png", bytes.NewReader(pngBytes(64)), 64)
+	if err != nil {
+		t.Fatalf("upload first: %v", err)
+	}
+	secondFileID, err := storage.UploadPNG(context.Background(), "anton-new.png", bytes.NewReader(pngBytes(64)), 64)
+	if err != nil {
+		t.Fatalf("upload second: %v", err)
+	}
+	first, err := svc.repo.CreateStamp(model.DrawingStampInput{
+		Name:      "Антон",
+		TextValue: "old",
+		Priority:  model.StampPriorityImage,
+	}, firstFileID, 64, model.DefaultMimeType, 10, 10, "user@example.com")
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	second, err := svc.repo.CreateStamp(model.DrawingStampInput{
+		Name:      " антон ",
+		TextValue: "new",
+		Priority:  model.StampPriorityImage,
+	}, secondFileID, 64, model.DefaultMimeType, 10, 10, "user@example.com")
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+
+	items, err := svc.ListStamps(context.Background())
+	if err != nil {
+		t.Fatalf("list stamps: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != second.ID {
+		t.Fatalf("expected newest duplicate to remain, got %#v", items)
+	}
+	if storage.HasFile(first.ImageDriveFileID) {
+		t.Fatalf("expected old duplicate image file to be deleted")
+	}
+	if !storage.HasFile(second.ImageDriveFileID) {
+		t.Fatalf("expected newest duplicate image file to remain")
 	}
 }
