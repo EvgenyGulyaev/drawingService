@@ -277,6 +277,7 @@ func (s *DrawingService) CreateStamp(ctx context.Context, in StampInput) (model.
 		}
 		return model.DrawingStamp{}, err
 	}
+	s.cleanupDuplicateStampImages(ctx, stamp.Name, stamp.ID)
 	return stamp, nil
 }
 
@@ -330,7 +331,29 @@ func (s *DrawingService) UpdateStamp(ctx context.Context, id string, in StampInp
 			log.Printf("drawing service: failed to delete removed stamp drive file %q: %v", existing.ImageDriveFileID, err)
 		}
 	}
+	s.cleanupDuplicateStampImages(ctx, updated.Name, updated.ID)
 	return updated, nil
+}
+
+func (s *DrawingService) cleanupDuplicateStampImages(ctx context.Context, name string, keepID string) {
+	removed, err := s.repo.DeleteDuplicateStampsByName(name, keepID)
+	if err != nil {
+		log.Printf("drawing service: failed to cleanup duplicate stamps named %q: %v", name, err)
+		return
+	}
+	if len(removed) == 0 {
+		return
+	}
+	driveCtx, driveCancel := s.driveContext(ctx)
+	defer driveCancel()
+	for _, stamp := range removed {
+		if stamp.ImageDriveFileID == "" {
+			continue
+		}
+		if err := s.stampStorage.Delete(driveCtx, stamp.ImageDriveFileID); err != nil {
+			log.Printf("drawing service: failed to delete duplicate stamp drive file %q: %v", stamp.ImageDriveFileID, err)
+		}
+	}
 }
 
 func (s *DrawingService) DownloadStampImage(ctx context.Context, id string) (io.ReadCloser, string, error) {

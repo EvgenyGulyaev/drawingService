@@ -99,3 +99,53 @@ func TestDrawingServiceStampImageIsCompressedToPNG(t *testing.T) {
 		t.Fatalf("expected stamp image in storage")
 	}
 }
+
+func TestDrawingServiceReplacesDuplicateStampName(t *testing.T) {
+	svc, storage := newTestService(t, 0)
+	svc.WithStampLimits(5*1024*1024, 64)
+	source := testJPEG(t, 240, 120)
+
+	first, err := svc.CreateStamp(context.Background(), StampInput{
+		Input: model.DrawingStampInput{
+			Name:      " Антон ",
+			TextValue: "Anton",
+			Priority:  model.StampPriorityImage,
+		},
+		Filename: "anton-first.jpg",
+		MimeType: "image/jpeg",
+		Body:     bytes.NewReader(source),
+		Actor:    "user@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create first stamp: %v", err)
+	}
+
+	second, err := svc.CreateStamp(context.Background(), StampInput{
+		Input: model.DrawingStampInput{
+			Name:      "антон",
+			TextValue: "Anton 2",
+			Priority:  model.StampPriorityImage,
+		},
+		Filename: "anton-second.jpg",
+		MimeType: "image/jpeg",
+		Body:     bytes.NewReader(source),
+		Actor:    "user@example.com",
+	})
+	if err != nil {
+		t.Fatalf("create duplicate stamp: %v", err)
+	}
+
+	items, err := svc.ListStamps()
+	if err != nil {
+		t.Fatalf("list stamps: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != second.ID {
+		t.Fatalf("expected duplicate name to be replaced, got %#v", items)
+	}
+	if storage.HasFile(first.ImageDriveFileID) {
+		t.Fatalf("expected old duplicate image file to be deleted")
+	}
+	if !storage.HasFile(second.ImageDriveFileID) {
+		t.Fatalf("expected new stamp image file to remain")
+	}
+}

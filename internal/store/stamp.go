@@ -3,12 +3,17 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"drawingService/internal/model"
 
 	bolt "go.etcd.io/bbolt"
 )
+
+func stampNameKey(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
 
 var (
 	DrawingStampsBucket        = []byte("DrawingStamps")
@@ -257,5 +262,53 @@ func (r *DrawingRepository) DeleteStamp(id string) (model.DrawingStamp, error) {
 		return model.DrawingStamp{}, err
 	}
 	removed.ImageDriveFileID = driveFileID
+	return removed, nil
+}
+
+func (r *DrawingRepository) DeleteDuplicateStampsByName(name string, keepID string) ([]model.DrawingStamp, error) {
+	key := stampNameKey(name)
+	if key == "" {
+		return nil, nil
+	}
+	removed := make([]model.DrawingStamp, 0)
+	err := r.db.Update(func(tx *bolt.Tx) error {
+		stamps := tx.Bucket(DrawingStampsBucket)
+		drive := tx.Bucket(DrawingStampDriveIDsBucket)
+		if stamps == nil || drive == nil {
+			return fmt.Errorf("drawing stamp buckets not found")
+		}
+		toDelete := make([]string, 0)
+		cursor := stamps.Cursor()
+		for rawID, value := cursor.First(); rawID != nil; rawID, value = cursor.Next() {
+			id := string(rawID)
+			if id == keepID {
+				continue
+			}
+			var item model.DrawingStamp
+			if err := json.Unmarshal(value, &item); err != nil {
+				return err
+			}
+			if stampNameKey(item.Name) != key {
+				continue
+			}
+			if item.HasImage {
+				item.ImageDriveFileID = string(drive.Get(rawID))
+			}
+			removed = append(removed, item)
+			toDelete = append(toDelete, id)
+		}
+		for _, id := range toDelete {
+			if err := stamps.Delete([]byte(id)); err != nil {
+				return err
+			}
+			if err := drive.Delete([]byte(id)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	return removed, nil
 }

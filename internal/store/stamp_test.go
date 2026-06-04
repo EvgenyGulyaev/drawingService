@@ -64,3 +64,42 @@ func TestDrawingRepositoryStampCRUD(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestDrawingRepositoryDeletesDuplicateStampsByName(t *testing.T) {
+	repo := newTestRepo(t)
+
+	first, err := repo.CreateStamp(model.DrawingStampInput{
+		Name:      "  Антон  ",
+		TextValue: "A",
+		Priority:  model.StampPriorityImage,
+	}, "drive-first", 10, model.DefaultMimeType, 20, 20, "user@example.com")
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	second, err := repo.CreateStamp(model.DrawingStampInput{
+		Name:      "антон",
+		TextValue: "B",
+		Priority:  model.StampPriorityText,
+	}, "", 0, "", 0, 0, "user@example.com")
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+
+	removed, err := repo.DeleteDuplicateStampsByName(" Антон ", second.ID)
+	if err != nil {
+		t.Fatalf("delete duplicates: %v", err)
+	}
+	if len(removed) != 1 || removed[0].ID != first.ID || removed[0].ImageDriveFileID != "drive-first" {
+		t.Fatalf("unexpected removed duplicates: %#v", removed)
+	}
+	if _, err := repo.FindStamp(first.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected first stamp removed, got %v", err)
+	}
+	items, err := repo.ListStamps()
+	if err != nil {
+		t.Fatalf("list stamps: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != second.ID {
+		t.Fatalf("expected only kept stamp, got %#v", items)
+	}
+}
