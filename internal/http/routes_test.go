@@ -97,28 +97,6 @@ func (e *testEnv) doRequest(t *testing.T, method, path, token, email, login stri
 	return resp, data
 }
 
-func buildMultipart(t *testing.T, title string, fileContent []byte) (io.Reader, string) {
-	t.Helper()
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	if err := mw.WriteField("metadata", mustJSON(t, map[string]any{
-		"title":  title,
-		"width":  100,
-		"height": 50,
-	})); err != nil {
-		t.Fatalf("write metadata: %v", err)
-	}
-	fw, err := mw.CreateFormFile("file", "test.png")
-	if err != nil {
-		t.Fatalf("create form file: %v", err)
-	}
-	if _, err := fw.Write(fileContent); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-	mw.Close()
-	return &buf, mw.FormDataContentType()
-}
-
 func buildMultipartWithType(t *testing.T, title, contentType, filename string, fileContent []byte) (io.Reader, string) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -302,7 +280,7 @@ func TestCreateListGetUpdateDeleteFlow(t *testing.T) {
 		t.Fatalf("expected 1 item, got %d", len(listResp.Items))
 	}
 
-	resp, data = env.doRequest(t, nethttp.MethodGet, "/internal/drawing/images/"+created.ID, testServiceToken, "user@example.com", "user", nil, "")
+	resp, _ = env.doRequest(t, nethttp.MethodGet, "/internal/drawing/images/"+created.ID, testServiceToken, "user@example.com", "user", nil, "")
 	if resp.StatusCode != nethttp.StatusOK {
 		t.Fatalf("expected 200 get, got %d", resp.StatusCode)
 	}

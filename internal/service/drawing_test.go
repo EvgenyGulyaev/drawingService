@@ -6,14 +6,16 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"drawingService/internal/google"
 	"drawingService/internal/model"
 	"drawingService/internal/store"
 )
 
-func newTestService(t *testing.T, maxBytes int64) (*DrawingService, *google.FakeStorage) {
+func newTestService(t testing.TB, maxBytes int64) (*DrawingService, *google.FakeStorage) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := store.OpenDb(filepath.Join(dir, "drawings.db"))
@@ -31,6 +33,28 @@ func newTestService(t *testing.T, maxBytes int64) (*DrawingService, *google.Fake
 	}
 	storage := google.NewFakeStorage()
 	return NewDrawingService(repo, storage, maxBytes), storage
+}
+
+type trackingStorage struct {
+	*google.FakeStorage
+	delay  time.Duration
+	active atomic.Int32
+	max    atomic.Int32
+}
+
+func (s *trackingStorage) Exists(ctx context.Context, fileID string) (bool, error) {
+	active := s.active.Add(1)
+	defer s.active.Add(-1)
+	for current := s.max.Load(); active > current && !s.max.CompareAndSwap(current, active); current = s.max.Load() {
+	}
+	timer := time.NewTimer(s.delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case <-timer.C:
+		return s.FakeStorage.Exists(ctx, fileID)
+	}
 }
 
 func pngBytes(n int) []byte {
@@ -148,6 +172,58 @@ func TestDrawingServiceListRemovesMissingDriveFiles(t *testing.T) {
 	}
 	if _, err := svc.Get(img.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("expected stale metadata to be removed, got %v", err)
+	}
+}
+
+func TestDrawingServiceListChecksDriveFilesWithBoundedConcurrency(t *testing.T) {
+	const expectedConcurrency = 4
+	svc, fake := newTestService(t, 0)
+	for range 8 {
+		if _, err := svc.Create(context.Background(), CreateInput{
+			Input:    model.DrawingImageInput{Title: "drawing", Width: 100, Height: 100},
+			Filename: "x.png",
+			MimeType: "image/png",
+			Body:     bytes.NewReader(pngBytes(8)),
+			Actor:    "user@example.com",
+		}); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+	storage := &trackingStorage{FakeStorage: fake, delay: 10 * time.Millisecond}
+	svc.storage = storage
+
+	items, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 8 {
+		t.Fatalf("expected 8 items, got %d", len(items))
+	}
+	if got := storage.max.Load(); got != expectedConcurrency {
+		t.Fatalf("expected %d concurrent checks, got %d", expectedConcurrency, got)
+	}
+}
+
+func BenchmarkDrawingServiceList(b *testing.B) {
+	svc, fake := newTestService(b, 0)
+	for range 20 {
+		if _, err := svc.Create(context.Background(), CreateInput{
+			Input:    model.DrawingImageInput{Title: "drawing", Width: 100, Height: 100},
+			Filename: "x.png",
+			MimeType: "image/png",
+			Body:     bytes.NewReader(pngBytes(8)),
+			Actor:    "user@example.com",
+		}); err != nil {
+			b.Fatalf("create: %v", err)
+		}
+	}
+	svc.storage = &trackingStorage{FakeStorage: fake, delay: time.Millisecond}
+	ctx := context.Background()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := svc.List(ctx); err != nil {
+			b.Fatalf("list: %v", err)
+		}
 	}
 }
 

@@ -77,7 +77,7 @@ func buildServiceOptions(ctx context.Context, opts DriveOptions) ([]option.Clien
 	if opts.CredentialsFile == "" {
 		return nil, errors.New("credentials file is required")
 	}
-	return []option.ClientOption{option.WithCredentialsFile(opts.CredentialsFile)}, nil
+	return []option.ClientOption{option.WithAuthCredentialsFile(option.ServiceAccount, opts.CredentialsFile)}, nil
 }
 
 func (s *DriveStorage) UploadPNG(ctx context.Context, name string, body io.Reader, size int64) (string, error) {

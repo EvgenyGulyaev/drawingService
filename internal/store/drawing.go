@@ -92,16 +92,22 @@ func (r *DrawingRepository) Create(input model.DrawingImageInput, driveFileID st
 func (r *DrawingRepository) List() ([]model.DrawingImage, error) {
 	result := make([]model.DrawingImage, 0)
 	err := r.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(DrawingImagesBucket)
-		if b == nil {
-			return fmt.Errorf("drawing images bucket not found")
+		images := tx.Bucket(DrawingImagesBucket)
+		drive := tx.Bucket(DrawingDriveIDsBucket)
+		if images == nil || drive == nil {
+			return fmt.Errorf("drawing buckets not found")
 		}
-		cursor := b.Cursor()
+		cursor := images.Cursor()
 		for key, value := cursor.Last(); key != nil; key, value = cursor.Prev() {
 			var item model.DrawingImage
 			if err := json.Unmarshal(value, &item); err != nil {
 				return err
 			}
+			driveFileID := drive.Get(key)
+			if driveFileID == nil {
+				return ErrNotFound
+			}
+			item.DriveFileID = string(driveFileID)
 			result = append(result, item)
 		}
 		return nil

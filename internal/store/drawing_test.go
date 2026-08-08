@@ -53,6 +53,9 @@ func TestDrawingRepositoryCRUD(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
+	if items[0].DriveFileID != "drive-1" {
+		t.Fatalf("expected list to include drive file id, got %q", items[0].DriveFileID)
+	}
 
 	found, err := repo.Find(image.ID)
 	if err != nil {

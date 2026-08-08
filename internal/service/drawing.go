@@ -12,6 +12,7 @@ import (
 	"math"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"drawingService/internal/google"
@@ -28,6 +29,8 @@ var (
 )
 
 var ErrUnsupportedStampMime = errors.New("only image/png and image/jpeg are allowed for stamp images")
+
+const driveExistsConcurrency = 4
 
 type DrawingService struct {
 	repo          *store.DrawingRepository
@@ -76,17 +79,41 @@ func (s *DrawingService) List(ctx context.Context) ([]model.DrawingImage, error)
 	if err != nil {
 		return nil, err
 	}
+	checkCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	exists := make([]bool, len(items))
+	sem := make(chan struct{}, driveExistsConcurrency)
+	var wg sync.WaitGroup
+	var errOnce sync.Once
+	var firstErr error
+	for i := range items {
+		wg.Go(func() {
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-checkCtx.Done():
+				return
+			}
+			var checkErr error
+			exists[i], checkErr = s.storage.Exists(checkCtx, items[i].DriveFileID)
+			if checkErr != nil {
+				errOnce.Do(func() {
+					firstErr = checkErr
+					cancel()
+				})
+			}
+		})
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	result := make([]model.DrawingImage, 0, len(items))
-	for _, item := range items {
-		stored, err := s.repo.FindWithDriveID(item.ID)
-		if err != nil {
-			return nil, err
-		}
-		exists, err := s.storage.Exists(ctx, stored.DriveFileID)
-		if err != nil {
-			return nil, err
-		}
-		if !exists {
+	for i, item := range items {
+		if !exists[i] {
 			if _, err := s.repo.Delete(item.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
 				return nil, err
 			}
