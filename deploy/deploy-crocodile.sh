@@ -21,32 +21,37 @@ else
     test -s "$incoming/index.html"
 fi
 
-mkdir "$release"
-cp -a "$previous/." "$release/"
-if [[ $component == api ]]; then
-    install -m 755 "$incoming/crocodile" "$release/crocodile"
-else
-    # Keep hashed assets for browsers that still have the previous HTML open.
-    cp -a "$incoming/." "$release/web/"
-    chmod -R a+rX "$release/web"
-fi
-
 switch_release() {
     ln -sfnT "$1" "$base/current.next"
     mv -Tf "$base/current.next" "$base/current"
 }
 
+activated=false
 rollback() {
     trap - ERR
-    switch_release "$previous"
-    if [[ $component == api ]]; then
-        sudo -n /usr/bin/systemctl restart crocodile.service
+    if "$activated"; then
+        switch_release "$previous"
+        if [[ $component == api ]]; then
+            sudo -n /usr/bin/systemctl restart crocodile.service
+        fi
     fi
+    rm -rf -- "$release" "$incoming"
     echo "Deployment failed; restored $previous" >&2
     exit 1
 }
 
 trap rollback ERR
+mkdir "$release"
+if [[ $component == api ]]; then
+    install -m 755 "$incoming/crocodile" "$release/crocodile"
+    cp -a "$previous/web" "$release/web"
+else
+    # The running API keeps this inode mapped; share it instead of retaining a deleted copy.
+    ln "$previous/crocodile" "$release/crocodile"
+    cp -a "$incoming" "$release/web"
+    chmod -R a+rX "$release/web"
+fi
+activated=true
 switch_release "$release"
 if [[ $component == api ]]; then
     sudo -n /usr/bin/systemctl restart crocodile.service
@@ -69,4 +74,6 @@ else
 fi
 trap - ERR
 rm -r "$incoming"
+[[ $(readlink -f "$base/current") == "$release" ]]
+find "$base/releases" -mindepth 1 -maxdepth 1 ! -path "$release" -exec rm -rf -- {} +
 echo "Deployed $component: $release"

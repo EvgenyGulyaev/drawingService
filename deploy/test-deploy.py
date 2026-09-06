@@ -10,8 +10,12 @@ with tempfile.TemporaryDirectory(prefix="crocodile-deploy-test-") as directory:
     initial = base / "releases" / "initial"
     (initial / "web").mkdir(parents=True)
     (initial / "web" / "index.html").write_text("old web")
+    (initial / "web" / "obsolete.js").write_text("old asset")
     (initial / "crocodile").write_text("old api")
     (base / "current").symlink_to(initial)
+    (base / "game.db").write_bytes(b"rooms and drawings")
+    pending = base / "incoming" / "another-upload"
+    pending.mkdir(parents=True)
     script = Path(__file__).with_name("deploy-crocodile.sh").read_text()
     script = script.replace("base=/opt/crocodile", f"base={base}")
     mocks = r'''
@@ -41,24 +45,33 @@ curl() {
             input=mocks + script, text=True, capture_output=True, env=env,
         )
         assert (result.returncode != 0) == bool(fail), result.stderr
-        return (base / "current").resolve()
+        current = (base / "current").resolve()
+        assert list((base / "releases").iterdir()) == [current], "Keep only current release"
+        assert not incoming.exists(), "Remove this deployment's upload"
+        assert pending.exists(), "Do not remove another upload"
+        assert (base / "game.db").read_bytes() == b"rooms and drawings"
+        return current
 
     api_release = deploy("api", 1)
     assert (api_release / "crocodile").read_text() == "new api 1"
     assert (api_release / "web" / "index.html").read_text() == "old web"
+    api_inode = (api_release / "crocodile").stat().st_ino
     # A killed previous activation can leave this symlink behind.
-    (base / "current.next").symlink_to(initial)
+    stale = base / "releases" / "interrupted"
+    stale.mkdir()
+    (base / "current.next").symlink_to(stale)
     web_release = deploy("web", 2)
     assert (web_release / "crocodile").read_text() == "new api 1"
     assert (web_release / "web" / "index.html").read_text() == "new web 2"
+    assert not (web_release / "web" / "obsolete.js").exists()
+    assert (web_release / "crocodile").stat().st_ino == api_inode
     assert (base / "restarts").read_text().splitlines() == ["restart"]
     assert deploy("api", 3, "api") == web_release
     assert deploy("web", 4, "web") == web_release
-    assert (initial / "crocodile").read_text() == "old api"
     invalid = subprocess.run(
         ["bash", "-s", "--", "api", "../../invalid"],
         input=mocks + script, text=True, capture_output=True,
     )
     assert invalid.returncode != 0
     assert (base / "current").resolve() == web_release
-    print("PASS: isolated API/web deployment, preserved component, rollback, invalid ID")
+    print("PASS: current-only cleanup, rollback, assets, shared binary inode, data and concurrent upload preservation")
