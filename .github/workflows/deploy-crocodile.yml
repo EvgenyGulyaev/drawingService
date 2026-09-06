@@ -1,0 +1,56 @@
+name: Deploy Crocodile API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/crocodile/**'
+      - 'internal/game/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/deploy-crocodile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crocodile-api-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test -race ./...
+      - name: Build game API
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o crocodile ./cmd/crocodile
+      - name: Configure SSH and verify server identity
+        env:
+          SSH_KEY: ${{ secrets.CROCODILE_SSH_KEY }}
+          HOST_FINGERPRINT: ${{ secrets.CROCODILE_HOST_FINGERPRINT }}
+        run: |
+          test -n "$SSH_KEY"
+          test -n "$HOST_FINGERPRINT"
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          ssh-keyscan -T 10 -t ed25519 95.181.224.178 > ~/.ssh/known_hosts
+          actual=$(ssh-keygen -lf ~/.ssh/known_hosts -E sha256 | awk '{print $2}')
+          test "$actual" = "$HOST_FINGERPRINT"
+      - name: Activate and verify game API
+        run: |
+          target=crocodile-deploy@95.181.224.178
+          incoming="/opt/crocodile/incoming/api-$RELEASE_ID"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$target" "mkdir -p '$incoming'"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes crocodile "$target:$incoming/crocodile"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$target" "/usr/local/bin/deploy-crocodile api '$RELEASE_ID'"

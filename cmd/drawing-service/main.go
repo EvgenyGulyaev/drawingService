@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"drawingService/internal/config"
+	"drawingService/internal/game"
 	"drawingService/internal/google"
 	httpserver "drawingService/internal/http"
 	"drawingService/internal/service"
@@ -60,7 +62,18 @@ func main() {
 		AllowedUsers: cfg.AllowedUsers,
 		AllowAnyUser: cfg.AllowAnyUser,
 	}
-	handler := httpserver.NewHandler(auth, svc, drive)
+	gameHandler, err := game.New(db.DB)
+	if err != nil {
+		log.Fatalf("init game: %v", err)
+	}
+	go func() {
+		for now := range time.NewTicker(time.Minute).C {
+			if err := gameHandler.Cleanup(now); err != nil {
+				log.Printf("game cleanup: %v", err)
+			}
+		}
+	}()
+	handler := httpserver.NewHandler(auth, svc, drive).WithGame(gameHandler)
 	server := httpserver.NewServer(cfg.ListenAddr(), handler)
 
 	if err := server.Start(); err != nil {

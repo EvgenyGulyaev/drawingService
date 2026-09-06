@@ -25,6 +25,7 @@ type Handler struct {
 	auth    AuthConfig
 	service *service.DrawingService
 	pinger  Pinger
+	game    func(*silverlining.Context)
 }
 
 type Pinger interface {
@@ -36,6 +37,10 @@ func NewHandler(auth AuthConfig, svc *service.DrawingService, pinger Pinger) *Ha
 }
 
 func (h *Handler) Serve(ctx *silverlining.Context) {
+	if h.game != nil && strings.HasPrefix(string(ctx.Path()), "/api/game/") {
+		h.game(ctx)
+		return
+	}
 	switch ctx.Method() {
 	case silverlining.MethodOPTIONS:
 		ctx.WriteHeader(http.StatusNoContent)

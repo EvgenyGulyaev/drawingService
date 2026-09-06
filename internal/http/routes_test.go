@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"drawingService/internal/game"
 	"drawingService/internal/google"
 	"drawingService/internal/model"
 	"drawingService/internal/service"
@@ -56,6 +57,11 @@ func newTestEnv(t *testing.T, allowed string, maxBytes int64) *testEnv {
 		auth.AllowedUsers = []string{allowed}
 	}
 	h := NewHandler(auth, svc, storage)
+	gameHandler, err := game.New(db.DB)
+	if err != nil {
+		t.Fatalf("init game: %v", err)
+	}
+	h.WithGame(gameHandler)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
